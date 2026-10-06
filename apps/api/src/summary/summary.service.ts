@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { type CategorySummary, monthBounds, type MonthSummary } from '@stabilitea/shared';
-import { BudgetLifecycleService } from '../budgets/budget-lifecycle.service.js';
+import { addMonths, type CategorySummary, type MonthSummary } from '@stabilitea/shared';
+import { BudgetLifecycleService, planClose } from '../budgets/budget-lifecycle.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 interface Row {
@@ -10,7 +10,7 @@ interface Row {
   categoryId: number;
   categoryName: string;
   categorySort: number;
-  rollover: boolean;
+  fund: boolean;
   limitCents: number;
   carryInCents: number;
   deficitPaidCents: number;
@@ -31,11 +31,7 @@ export class SummaryService {
         where: { month },
         include: { lines: { include: { subcategory: { include: { category: true } } } } },
       });
-      const { first, last } = monthBounds(month);
-      const income = await tx.transaction.aggregate({
-        where: { type: 'income', date: { gte: first, lte: last } },
-        _sum: { amountCents: true },
-      });
+      const income = await this.lifecycle.totalsBySubcategory(tx, month, 'income');
       const spent = await this.lifecycle.spentBySubcategory(tx, month);
 
       const rows = new Map<number, Row>();
@@ -48,7 +44,7 @@ export class SummaryService {
           categoryId: sub.category.id,
           categoryName: sub.category.name,
           categorySort: sub.category.sortOrder,
-          rollover: line.rollover,
+          fund: line.fund,
           limitCents: line.limitCents,
           carryInCents: line.carryInCents,
           deficitPaidCents: line.deficitPaidCents,
@@ -68,7 +64,7 @@ export class SummaryService {
             categoryId: sub.category.id,
             categoryName: sub.category.name,
             categorySort: sub.category.sortOrder,
-            rollover: sub.category.rollover,
+            fund: false,
             limitCents: 0,
             carryInCents: 0,
             deficitPaidCents: 0,
@@ -92,7 +88,6 @@ export class SummaryService {
           category = {
             id: row.categoryId,
             name: row.categoryName,
-            rollover: row.rollover,
             limitCents: 0,
             availableCents: 0,
             deficitPaidCents: 0,
@@ -108,6 +103,7 @@ export class SummaryService {
         category.subcategories.push({
           id: row.subcategoryId,
           name: row.subcategoryName,
+          fund: row.fund,
           limitCents: row.limitCents,
           carryInCents: row.carryInCents,
           deficitPaidCents: row.deficitPaidCents,
@@ -116,8 +112,28 @@ export class SummaryService {
         });
       }
 
-      const incomeCents = income._sum.amountCents ?? 0;
+      const incomeCents = [...income.values()].reduce((sum, value) => sum + value, 0);
       const expenseCents = [...spent.values()].reduce((sum, value) => sum + value, 0);
+      const deficitPaidCents = categories.reduce((sum, c) => sum + c.deficitPaidCents, 0);
+
+      // Closed months: the ledger is the truth. Open months: project what closing today would write.
+      let savingsChangeCents: number;
+      if (budget.status === 'closed') {
+        const { _sum } = await tx.savingsEntry.aggregate({ where: { month }, _sum: { amountCents: true } });
+        savingsChangeCents = _sum.amountCents ?? 0;
+      } else {
+        const next = await tx.budgetMonth.findUnique({
+          where: { month: addMonths(month, 1) },
+          include: { lines: { where: { fund: true } } },
+        });
+        const nextFund = new Set(
+          next
+            ? next.lines.map((l) => l.subcategoryId)
+            : budget.lines.filter((l) => l.fund && !l.subcategory.archivedAt).map((l) => l.subcategoryId),
+        );
+        const plan = planClose(budget.lines, spent, income, nextFund);
+        savingsChangeCents = plan.moves.reduce((sum, m) => sum + m.amountCents, 0) - deficitPaidCents;
+      }
       return {
         month,
         status: budget.status === 'closed' ? 'closed' : 'open',
@@ -125,7 +141,9 @@ export class SummaryService {
         incomeCents,
         expenseCents,
         netCents: incomeCents - expenseCents,
-        deficitPaidCents: categories.reduce((sum, c) => sum + c.deficitPaidCents, 0),
+        fundContributionCents: budget.lines.filter((l) => l.fund).reduce((sum, l) => sum + l.limitCents, 0),
+        deficitPaidCents,
+        savingsChangeCents,
         earliestOpenPastMonth: await this.lifecycle.earliestOpenBefore(tx, month),
         categories,
       };

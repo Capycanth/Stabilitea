@@ -57,6 +57,24 @@ interface SubcategoryModel {
       </div>
     </form>
 
+    @if (parent().kind === 'expense') {
+      <div class="field">
+        <label class="checkbox">
+          <input type="checkbox" [checked]="subcategory().fund" [disabled]="busy()" (change)="toggleFund($event)" aria-describedby="fund-hint" />
+          Fund (keeps its own balance)
+        </label>
+        <p id="fund-hint" class="hint">
+          @if (subcategory().fund) {
+            Each month its limit moves from savings into this fund, and whatever is left (or overspent) carries into next
+            month. A deficit can be paid from savings on the Budget page.
+          } @else {
+            Spending comes straight out of savings when a month closes; the limit is a target.
+          }
+          Changes apply to open months only.
+        </p>
+      </div>
+    }
+
     <div class="row">
       <button type="button" class="btn btn-sm" [disabled]="busy() || index() === 0" (click)="move(-1)">
         <app-icon name="arrow-up" [size]="16" />Move up
@@ -132,6 +150,12 @@ export class SubcategoryEditor {
     ...this.subForm.defaultLimitCents().errors().map((e) => e.message ?? ''),
     ...this.subForm.categoryId().errors().map((e) => e.message ?? ''),
   ]);
+
+  protected toggleFund(event: Event): void {
+    const fund = (event.target as HTMLInputElement).checked;
+    const name = this.subcategory().name;
+    void this.update({ fund }, fund ? `${name} is now a fund.` : `${name} is now a regular subcategory.`);
+  }
 
   protected move(delta: number): void {
     void this.update({ sortOrder: this.index() + delta }, `Moved ${this.subcategory().name}.`);

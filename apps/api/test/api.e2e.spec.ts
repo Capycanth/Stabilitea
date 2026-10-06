@@ -46,13 +46,14 @@ describe('Stabilitea API (e2e)', () => {
   describe('categories', () => {
     it('lists seeded categories with nested subcategories in order', () => {
       expect(categories.map((c) => c.name)).toEqual(['Income', 'Housing', 'Food', 'Transportation', 'Personal']);
-      expect(categories.find((c) => c.name === 'Food')).toMatchObject({ kind: 'expense', rollover: true });
-      expect(sub('Housing', 'Internet')).toMatchObject({ defaultLimitCents: 7_000, archivedAt: null });
+      expect(categories.find((c) => c.name === 'Food')).toMatchObject({ kind: 'expense' });
+      expect(sub('Housing', 'Internet')).toMatchObject({ defaultLimitCents: 7_000, fund: false, archivedAt: null });
+      expect(sub('Transportation', 'Maintenance')).toMatchObject({ fund: true });
     });
 
     it('creates, renames, reorders and archives', async () => {
-      const created: CategoryDto = (await http().post('/api/categories').send({ name: ' Health ', kind: 'expense', rollover: true }).expect(201)).body;
-      expect(created).toMatchObject({ name: 'Health', rollover: true, sortOrder: 5 });
+      const created: CategoryDto = (await http().post('/api/categories').send({ name: ' Health ', kind: 'expense' }).expect(201)).body;
+      expect(created).toMatchObject({ name: 'Health', sortOrder: 5 });
 
       await http().patch(`/api/categories/${created.id}`).send({ sortOrder: 0 }).expect(200);
       let list: CategoryDto[] = (await http().get('/api/categories').expect(200)).body;
@@ -73,10 +74,11 @@ describe('Stabilitea API (e2e)', () => {
     it('creates subcategories and adds them to open budgets', async () => {
       const food = categories.find((c) => c.name === 'Food')!;
       await http().get('/api/budgets/2026-09').expect(200);
-      const snack = (await http().post(`/api/categories/${food.id}/subcategories`).send({ name: 'Snacks', defaultLimitCents: 2_000 }).expect(201)).body;
+      const snack = (await http().post(`/api/categories/${food.id}/subcategories`).send({ name: 'Snacks', defaultLimitCents: 2_000, fund: true }).expect(201)).body;
+      expect(snack).toMatchObject({ fund: true });
       const budget: BudgetMonthDto = (await http().get('/api/budgets/2026-09').expect(200)).body;
       const line = budget.categories.flatMap((g) => g.lines).find((l) => l.subcategoryId === snack.id);
-      expect(line).toMatchObject({ limitCents: 2_000, carryInCents: 0, rollover: true });
+      expect(line).toMatchObject({ limitCents: 2_000, carryInCents: 0, fund: true });
     });
 
     it('rejects moving a subcategory across kinds', async () => {
@@ -85,15 +87,22 @@ describe('Stabilitea API (e2e)', () => {
       expect(res.body.fieldErrors).toHaveProperty('categoryId');
     });
 
-    it('updates open lines when the rollover flag changes', async () => {
-      const food = categories.find((c) => c.name === 'Food')!;
+    it('updates open lines when a subcategory becomes a fund', async () => {
       await http().post('/api/budgets/2026-08/close').expect(200);
-      await http().patch(`/api/categories/${food.id}`).send({ rollover: false }).expect(200);
+      const updated = (await http().patch(`/api/subcategories/${sub('Food', 'Groceries').id}`).send({ fund: true }).expect(200)).body;
+      expect(updated).toMatchObject({ fund: true });
       const aug: BudgetMonthDto = (await http().get('/api/budgets/2026-08')).body;
       const sep: BudgetMonthDto = (await http().get('/api/budgets/2026-09')).body;
       const groceriesLine = (b: BudgetMonthDto) => b.categories.flatMap((g) => g.lines).find((l) => l.subcategoryName === 'Groceries')!;
-      expect(groceriesLine(aug).rollover).toBe(true);
-      expect(groceriesLine(sep).rollover).toBe(false);
+      expect(groceriesLine(aug).fund).toBe(false);
+      expect(groceriesLine(sep).fund).toBe(true);
+    });
+
+    it('only lets expense subcategories be funds', async () => {
+      const res = await http().patch(`/api/subcategories/${sub('Income', 'Salary').id}`).send({ fund: true }).expect(400);
+      expect(res.body.fieldErrors).toHaveProperty('fund');
+      const income = categories.find((c) => c.name === 'Income')!;
+      await http().post(`/api/categories/${income.id}/subcategories`).send({ name: 'Bonus', fund: true }).expect(400);
     });
   });
 
@@ -200,9 +209,11 @@ describe('Stabilitea API (e2e)', () => {
 
       const summary: MonthSummary = (await http().get('/api/summary/2026-09').expect(200)).body;
       expect(summary).toMatchObject({ month: '2026-09', status: 'open', incomeCents: 500_000, expenseCents: 55_000, netCents: 445_000 });
+      // Projected: income − regular spending − Maintenance's 7_500 fund contribution
+      expect(summary).toMatchObject({ fundContributionCents: 7_500, savingsChangeCents: 437_500 });
       const food = summary.categories.find((c) => c.name === 'Food')!;
-      expect(food).toMatchObject({ rollover: true, limitCents: 70_000, availableCents: 70_000, spentCents: 55_000 });
-      expect(food.subcategories.find((s) => s.name === 'Dining Out')).toMatchObject({ remainingCents: -5_000 });
+      expect(food).toMatchObject({ limitCents: 70_000, availableCents: 70_000, spentCents: 55_000 });
+      expect(food.subcategories.find((s) => s.name === 'Dining Out')).toMatchObject({ fund: false, remainingCents: -5_000 });
       expect(summary.categories.some((c) => c.name === 'Income')).toBe(false);
     });
 
@@ -212,68 +223,90 @@ describe('Stabilitea API (e2e)', () => {
       expect(summary.earliestOpenPastMonth).toBe('2026-07');
     });
 
-    it('closes into savings and reports the balance', async () => {
-      await http().post('/api/transactions').send({ date: '2026-08-02', type: 'expense', amountCents: 140_000, subcategoryId: sub('Housing', 'Rent/Mortgage').id }).expect(201);
+    const post = (date: string, subcategoryId: number, amountCents: number, type = 'expense') =>
+      http().post('/api/transactions').send({ date, type, amountCents, subcategoryId }).expect(201);
+
+    it('closes income, spending and fund contributions into savings', async () => {
+      await post('2026-08-01', sub('Income', 'Salary').id, 500_000, 'income');
+      await post('2026-08-02', sub('Housing', 'Rent/Mortgage').id, 140_000);
       await http().post('/api/budgets/2026-08/close').expect(200);
 
       const savings: SavingsDto = (await http().get('/api/savings').expect(200)).body;
-      // Housing: 10_000 rent + 15_000 utilities + 7_000 internet; Personal: 10_000 + 10_000 + 5_000
-      expect(savings.balanceCents).toBe(57_000);
-      expect(savings.entries.find((e) => e.subcategoryName === 'Rent/Mortgage')).toMatchObject({ month: '2026-08', amountCents: 10_000, categoryName: 'Housing' });
+      expect(savings.balanceCents).toBe(500_000 - 140_000 - 7_500);
+      expect(savings.entries.map((e) => [e.kind, e.subcategoryName, e.amountCents])).toEqual([
+        ['income', 'Salary', 500_000],
+        ['spending', 'Rent/Mortgage', -140_000],
+        ['fund_contribution', 'Maintenance', -7_500],
+      ]);
+      expect(savings.months).toEqual([
+        {
+          month: '2026-08',
+          incomeCents: 500_000,
+          spendingCents: 140_000,
+          fundContributionCents: 7_500,
+          fundReleaseCents: 0,
+          deficitPaidCents: 0,
+          changeCents: 352_500,
+          balanceAfterCents: 352_500,
+        },
+      ]);
+      expect(savings.funds).toEqual([
+        { subcategoryId: sub('Transportation', 'Maintenance').id, subcategoryName: 'Maintenance', categoryName: 'Transportation', balanceCents: 7_500 },
+      ]);
 
+      const august: MonthSummary = (await http().get('/api/summary/2026-08').expect(200)).body;
+      expect(august.savingsChangeCents).toBe(352_500);
       const september: MonthSummary = (await http().get('/api/summary/2026-09').expect(200)).body;
-      expect(september.categories.find((c) => c.name === 'Food')).toMatchObject({ limitCents: 70_000, availableCents: 140_000 });
+      expect(september.categories.find((c) => c.name === 'Transportation')).toMatchObject({ limitCents: 22_500, availableCents: 30_000 });
 
       await http().post('/api/budgets/2026-08/reopen').expect(200);
-      expect((await http().get('/api/savings')).body.balanceCents).toBe(0);
+      expect((await http().get('/api/savings')).body).toMatchObject({ balanceCents: 0, months: [], entries: [] });
     });
 
-    it('carries deficits, pays them from savings, and undoes payments', async () => {
-      const post = (date: string, subcategoryId: number, amountCents: number) =>
-        http().post('/api/transactions').send({ date, type: 'expense', amountCents, subcategoryId }).expect(201);
-      await post('2026-08-02', sub('Housing', 'Rent/Mortgage').id, 140_000);
-      await post('2026-08-03', sub('Food', 'Dining Out').id, 30_000);
-      await post('2026-08-04', sub('Food', 'Groceries').id, 50_000);
-      await post('2026-08-05', sub('Transportation', 'Fuel').id, 15_000);
-      await post('2026-08-06', sub('Transportation', 'Maintenance').id, 7_500);
+    it('carries fund deficits, pays them from savings, and undoes payments', async () => {
+      await post('2026-08-01', sub('Income', 'Salary').id, 100_000, 'income');
+      await post('2026-08-06', sub('Transportation', 'Maintenance').id, 20_000); // 7_500 → -12_500
       await http().post('/api/budgets/2026-08/close').expect(200);
 
-      await post('2026-09-03', sub('Food', 'Dining Out').id, 15_000);
+      await post('2026-09-03', sub('Transportation', 'Maintenance').id, 1_000);
       let budget: BudgetMonthDto = (await http().get('/api/budgets/2026-09').expect(200)).body;
-      let dining = budget.categories.flatMap((g) => g.lines).find((l) => l.subcategoryName === 'Dining Out')!;
-      expect(dining).toMatchObject({ carryInCents: -10_000, availableCents: 10_000, remainingCents: -5_000, deficitPaidCents: 0 });
-      expect(budget.savingsBalanceCents).toBe(57_000);
+      const findLine = (b: BudgetMonthDto, name: string) => b.categories.flatMap((g) => g.lines).find((l) => l.subcategoryName === name)!;
+      let maintenance = findLine(budget, 'Maintenance');
+      expect(maintenance).toMatchObject({ fund: true, carryInCents: -12_500, availableCents: -5_000, remainingCents: -6_000, deficitPaidCents: 0 });
+      expect(budget.savingsBalanceCents).toBe(92_500);
 
-      // Groceries has no deficit, and Housing doesn't roll over.
-      const groceries = budget.categories.flatMap((g) => g.lines).find((l) => l.subcategoryName === 'Groceries')!;
-      await http().post(`/api/budgets/2026-09/lines/${groceries.id}/pay-deficit`).expect(409);
+      // Regular lines have nothing to pay down.
+      await post('2026-09-04', sub('Food', 'Groceries').id, 60_000);
+      await http().post(`/api/budgets/2026-09/lines/${findLine(budget, 'Groceries').id}/pay-deficit`).expect(409);
 
-      budget = (await http().post(`/api/budgets/2026-09/lines/${dining.id}/pay-deficit`).expect(200)).body;
-      dining = budget.categories.flatMap((g) => g.lines).find((l) => l.subcategoryName === 'Dining Out')!;
-      expect(dining).toMatchObject({ deficitPaidCents: 5_000, availableCents: 15_000, remainingCents: 0 });
-      expect(budget).toMatchObject({ savingsBalanceCents: 52_000, deficitPaidCents: 5_000 });
+      budget = (await http().post(`/api/budgets/2026-09/lines/${maintenance.id}/pay-deficit`).expect(200)).body;
+      maintenance = findLine(budget, 'Maintenance');
+      expect(maintenance).toMatchObject({ deficitPaidCents: 6_000, availableCents: 1_000, remainingCents: 0 });
+      expect(budget).toMatchObject({ savingsBalanceCents: 86_500, deficitPaidCents: 6_000 });
       expect(budget.deficitPayments).toEqual([
-        expect.objectContaining({ subcategoryName: 'Dining Out', categoryName: 'Food', amountCents: 5_000, budgetLineId: dining.id }),
+        expect.objectContaining({ subcategoryName: 'Maintenance', categoryName: 'Transportation', amountCents: 6_000, budgetLineId: maintenance.id }),
       ]);
 
       const summary: MonthSummary = (await http().get('/api/summary/2026-09').expect(200)).body;
-      expect(summary.deficitPaidCents).toBe(5_000);
+      expect(summary.deficitPaidCents).toBe(6_000);
       const savings: SavingsDto = (await http().get('/api/savings').expect(200)).body;
-      expect(savings.balanceCents).toBe(52_000);
-      expect(savings.entries.find((e) => e.kind === 'deficit_payment')).toMatchObject({ month: '2026-09', amountCents: -5_000 });
+      expect(savings.balanceCents).toBe(86_500);
+      expect(savings.entries.find((e) => e.kind === 'deficit_payment')).toMatchObject({ month: '2026-09', amountCents: -6_000 });
+      // August's closing balance (−12_500) plus September's payment.
+      expect(savings.funds[0]).toMatchObject({ subcategoryName: 'Maintenance', balanceCents: -6_500 });
 
       const undone: BudgetMonthDto = (await http().delete(`/api/budgets/2026-09/deficit-payments/${budget.deficitPayments[0]!.id}`).expect(200)).body;
-      expect(undone).toMatchObject({ savingsBalanceCents: 57_000, deficitPaidCents: 0, deficitPayments: [] });
+      expect(undone).toMatchObject({ savingsBalanceCents: 92_500, deficitPaidCents: 0, deficitPayments: [] });
     });
 
     it('downloads a yearly Excel report with summary, monthly and budget sheets', async () => {
-      await http().post('/api/transactions').send({ date: '2026-08-01', type: 'income', amountCents: 500_000, subcategoryId: sub('Income', 'Salary').id }).expect(201);
-      await http().post('/api/transactions').send({ date: '2026-08-03', type: 'expense', amountCents: 30_000, subcategoryId: sub('Food', 'Dining Out').id }).expect(201);
+      await post('2026-08-01', sub('Income', 'Salary').id, 500_000, 'income');
+      await post('2026-08-03', sub('Transportation', 'Maintenance').id, 20_000);
       await http().post('/api/budgets/2026-08/close').expect(200);
-      await http().post('/api/transactions').send({ date: '2026-09-03', type: 'expense', amountCents: 15_000, subcategoryId: sub('Food', 'Dining Out').id }).expect(201);
+      await post('2026-09-03', sub('Transportation', 'Maintenance').id, 1_000);
       const budget: BudgetMonthDto = (await http().get('/api/budgets/2026-09')).body;
-      const dining = budget.categories.flatMap((g) => g.lines).find((l) => l.subcategoryName === 'Dining Out')!;
-      await http().post(`/api/budgets/2026-09/lines/${dining.id}/pay-deficit`).expect(200);
+      const maintenance = budget.categories.flatMap((g) => g.lines).find((l) => l.subcategoryName === 'Maintenance')!;
+      await http().post(`/api/budgets/2026-09/lines/${maintenance.id}/pay-deficit`).expect(200);
 
       expect((await http().get('/api/reports/years').expect(200)).body.years).toContain(2026);
       await http().get('/api/reports/12').expect(400);
@@ -303,33 +336,33 @@ describe('Stabilitea API (e2e)', () => {
         return found;
       };
       expect(valueFor('Income')).toBe(5000);
-      expect(valueFor('Expenses')).toBe(450);
-      // Aug sweeps: Housing 1720 + Personal 250 = 1970; minus 50 paid for Dining Out's September deficit
-      expect(valueFor('Swept into savings')).toBe(1970);
-      expect(valueFor('Paid from savings to cover deficits')).toBe(50);
-      expect(valueFor('Savings balance at year end')).toBe(1920);
+      expect(valueFor('Expenses')).toBe(210);
+      expect(valueFor('Moved into funds')).toBe(75);
+      expect(valueFor('Paid from savings to cover fund deficits')).toBe(60);
+      // August: 5000 − 75 into Maintenance; September: −60 deficit payment (September is still open)
+      expect(valueFor('Change in savings')).toBe(4865);
+      expect(valueFor('Savings balance at year end')).toBe(4865);
       expect(valueFor('Deficit payments made')).toBe(1);
 
       const monthly = workbook.getWorksheet('Monthly')!;
-      const september = monthly.getRows(1, monthly.rowCount)!.find((r) => r.getCell(1).value === 'September 2026')!;
-      expect(september.getCell(2).value).toBe('Open');
-      expect(september.getCell(10).value).toBe(50);
-      expect(september.getCell(11).value).toBe(1920);
+      const rowFor = (label: string) => monthly.getRows(1, monthly.rowCount)!.find((r) => r.getCell(1).value === label)!;
+      expect([2, 3, 4, 5].map((i) => rowFor('August 2026').getCell(i).value)).toEqual(['Closed', 5000, 200, 4800]);
+      expect([2, 10, 11, 12].map((i) => rowFor('September 2026').getCell(i).value)).toEqual(['Open', 60, -60, 4865]);
 
       const detail = workbook.getWorksheet('Budget vs actual')!;
-      const diningSept = detail
-        .getRows(1, detail.rowCount)!
-        .find((r) => r.getCell(1).value === 'September 2026' && r.getCell(3).value === 'Dining Out')!;
-      expect([5, 6, 7, 8, 9, 10].map((i) => diningSept.getCell(i).value)).toEqual([200, -100, 50, 150, 150, 0]);
-      const diningAug = detail.getRows(1, detail.rowCount)!.find((r) => r.getCell(1).value === 'August 2026' && r.getCell(3).value === 'Dining Out')!;
-      expect(diningAug.getCell(11).value).toBe('Deficit carried to next month');
+      const detailRow = (month: string, name: string) =>
+        detail.getRows(1, detail.rowCount)!.find((r) => r.getCell(1).value === month && r.getCell(3).value === name)!;
+      const maintSept = detailRow('September 2026', 'Maintenance');
+      expect([4, 5, 6, 7, 8, 9, 10].map((i) => maintSept.getCell(i).value)).toEqual(['Fund', 75, -125, 60, 10, 10, 0]);
+      expect(detailRow('August 2026', 'Maintenance').getCell(11).value).toBe('Fund deficit carried');
+      expect(detailRow('August 2026', 'Rent/Mortgage').getCell(11).value).toBe('Spent from savings');
     });
 
     it('exports every table', async () => {
       await http().get('/api/budgets/2026-09').expect(200);
       const res = await http().get('/api/export').expect(200);
       expect(res.headers['content-disposition']).toContain('stabilitea-export.json');
-      expect(res.body).toMatchObject({ app: 'stabilitea', schemaVersion: 1 });
+      expect(res.body).toMatchObject({ app: 'stabilitea', schemaVersion: 2 });
       expect(res.body.categories).toHaveLength(5);
       expect(res.body.budgetLines.length).toBeGreaterThan(0);
     });

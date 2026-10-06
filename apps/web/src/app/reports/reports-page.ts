@@ -60,17 +60,17 @@ import { ReportApi } from './report-api';
         <div class="card-deep sheet">
           <app-icon name="report" />
           <h3>Summary</h3>
-          <p>Income, expenses and net for the year, money swept into savings, deficits paid from savings, savings at the start and end of the year, and spending by category.</p>
+          <p>Income and expenses side by side, net, money moved into and released from funds, fund deficits paid from savings, savings at the start and end of the year, and spending by category.</p>
         </div>
         <div class="card-deep sheet">
           <app-icon name="overview" />
           <h3>Monthly</h3>
-          <p>One row per month: status, planned vs. actual income, expenses, net, budgeted, carry-in, sweeps, deficit payments and the savings balance.</p>
+          <p>One row per month: status, income, expenses, net, planned income, budgeted, fund contributions and releases, fund deficits paid, the change in savings and the savings balance.</p>
         </div>
         <div class="card-deep sheet">
           <app-icon name="budget" />
           <h3>Budget vs. actual</h3>
-          <p>Every subcategory for every month: limit, carry-in (negative for carried deficits), amount paid from savings, budget, spent, remaining and what happened at close.</p>
+          <p>Every subcategory for every month: regular or fund, limit, fund balance in (negative for deficits), amount paid from savings, available, spent, remaining and what happened at close.</p>
         </div>
       </section>
     </div>

@@ -16,6 +16,11 @@ export interface SubcategoryDto {
   categoryId: number;
   name: string;
   defaultLimitCents: number;
+  /**
+   * Expense only. true = a fund: it keeps its own balance, carried month to month (positive or negative).
+   * false = regular: spending simply comes out of savings when the month closes.
+   */
+  fund: boolean;
   sortOrder: number;
   archivedAt: string | null;
   /** Number of transactions recorded against this subcategory (all months). */
@@ -26,8 +31,6 @@ export interface CategoryDto {
   id: number;
   name: string;
   kind: CategoryKind;
-  /** Expense only. true = carry leftover forward; false = sweep to savings. */
-  rollover: boolean;
   sortOrder: number;
   archivedAt: string | null;
   subcategories: SubcategoryDto[];
@@ -36,12 +39,10 @@ export interface CategoryDto {
 export interface CreateCategoryRequest {
   name: string;
   kind: CategoryKind;
-  rollover?: boolean;
 }
 
 export interface UpdateCategoryRequest {
   name?: string;
-  rollover?: boolean;
   sortOrder?: number;
   archived?: boolean;
 }
@@ -49,6 +50,8 @@ export interface UpdateCategoryRequest {
 export interface CreateSubcategoryRequest {
   name: string;
   defaultLimitCents?: number;
+  /** Expense subcategories only. */
+  fund?: boolean;
 }
 
 export interface UpdateSubcategoryRequest {
@@ -56,6 +59,8 @@ export interface UpdateSubcategoryRequest {
   /** Move to another category of the same kind. */
   categoryId?: number;
   defaultLimitCents?: number;
+  /** Expense subcategories only. Open months follow the change; closed months keep their snapshot. */
+  fund?: boolean;
   sortOrder?: number;
   archived?: boolean;
 }
@@ -105,17 +110,18 @@ export interface BudgetLineDto {
   month: string;
   subcategoryId: number;
   subcategoryName: string;
+  /** Regular line: this month's spending target. Fund line: this month's contribution from savings. */
   limitCents: number;
-  /** Leftover carried from last month. Negative when a rollover line carried a deficit. */
+  /** Fund balance brought in from last month. Negative when the fund carried a deficit. Always 0 for new regular lines. */
   carryInCents: number;
-  /** Moved from savings this month to cover this line's deficit. */
+  /** Moved from savings this month to cover this fund's deficit. */
   deficitPaidCents: number;
-  /** limit + carryIn + deficitPaid: this month's budget. May be negative. */
+  /** limit + carryIn + deficitPaid. May be negative. */
   availableCents: number;
-  /** Snapshot of the category flag for this month. */
-  rollover: boolean;
+  /** Snapshot of the subcategory's fund flag for this month. */
+  fund: boolean;
   spentCents: number;
-  /** available - spent */
+  /** available - spent. For a fund, its balance at the end of the month. */
   remainingCents: number;
 }
 
@@ -171,6 +177,7 @@ export interface UpdateBudgetLineRequest {
 export interface SubcategorySummary {
   id: number;
   name: string;
+  fund: boolean;
   limitCents: number;
   carryInCents: number;
   deficitPaidCents: number;
@@ -182,7 +189,6 @@ export interface SubcategorySummary {
 export interface CategorySummary {
   id: number;
   name: string;
-  rollover: boolean;
   /** Sum of subcategory limits. */
   limitCents: number;
   /** Limits + carry-in + deficit paid. May be negative. */
@@ -199,8 +205,16 @@ export interface MonthSummary {
   incomeCents: number;
   expenseCents: number;
   netCents: number;
-  /** Moved from savings to cover deficits this month. */
+  /** Sum of fund limits: what closing moves from savings into funds. */
+  fundContributionCents: number;
+  /** Moved from savings to cover fund deficits this month. */
   deficitPaidCents: number;
+  /**
+   * Net change to savings from this month: income − regular spending − fund contributions − deficits paid,
+   * plus any balance a fund line hands back to savings (it was switched to regular). For an open month this is
+   * the projection if it closed today.
+   */
+  savingsChangeCents: number;
   /** Earliest budgeted month before this one that is still open, if any. */
   earliestOpenPastMonth: string | null;
   categories: CategorySummary[];
@@ -210,23 +224,57 @@ export interface MonthSummary {
 // Savings
 // ---------------------------------------------------------------------------
 
-export type SavingsEntryKind = 'sweep' | 'deficit_payment';
+/**
+ * Closing a month writes 'income' (+), 'spending' (− regular subcategories), 'fund_contribution' (− a fund's limit)
+ * and 'fund_release' (± a fund balance that has no fund line to carry into). 'deficit_payment' (−) is written when
+ * a fund's deficit is paid from savings.
+ */
+export type SavingsEntryKind = 'income' | 'spending' | 'fund_contribution' | 'fund_release' | 'deficit_payment';
 
 export interface SavingsEntryDto {
   id: number;
-  /** 'sweep' adds leftovers when a month closes; 'deficit_payment' withdraws to cover a deficit. */
   kind: SavingsEntryKind;
   month: string;
   subcategoryId: number | null;
   subcategoryName: string | null;
   categoryName: string | null;
-  /** Positive for sweeps, negative for deficit payments. */
+  /** Positive adds to savings, negative takes from it. */
   amountCents: number;
   createdAt: string;
 }
 
-export interface SavingsDto {
+export interface SavingsMonthDto {
+  month: string;
+  incomeCents: number;
+  /** Regular spending (positive number). */
+  spendingCents: number;
+  /** Moved into funds (positive number). */
+  fundContributionCents: number;
+  /** Fund balances handed back to savings (may be negative). */
+  fundReleaseCents: number;
+  /** Paid from savings to cover fund deficits (positive number). */
+  deficitPaidCents: number;
+  /** Sum of the month's entries. */
+  changeCents: number;
+  /** Savings balance after this month's entries. */
+  balanceAfterCents: number;
+}
+
+export interface FundBalanceDto {
+  subcategoryId: number;
+  subcategoryName: string;
+  categoryName: string;
+  /** Balance after the latest close, including deficits paid since. May be negative. */
   balanceCents: number;
+}
+
+export interface SavingsDto {
+  /** Sum of all entries. May be negative. */
+  balanceCents: number;
+  /** Active funds and their balances. */
+  funds: FundBalanceDto[];
+  /** Per-month totals, newest first. */
+  months: SavingsMonthDto[];
   /** Newest month first. */
   entries: SavingsEntryDto[];
 }
@@ -256,7 +304,8 @@ export interface ReportYearsDto {
 
 export interface ExportDto {
   app: 'stabilitea';
-  schemaVersion: 1;
+  /** 2: funds on subcategories; savings ledger tracks income, spending and fund flows. */
+  schemaVersion: 2;
   exportedAt: string;
   categories: unknown[];
   subcategories: unknown[];

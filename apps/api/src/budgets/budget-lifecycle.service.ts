@@ -1,13 +1,18 @@
 import { Injectable } from '@nestjs/common';
-import { addMonths, formatCents, monthBounds, monthLabel } from '@stabilitea/shared';
+import { addMonths, monthBounds, monthLabel } from '@stabilitea/shared';
 import { conflict, monthClosed, notFound } from '../common/errors.js';
 import { type Db, PrismaService } from '../prisma/prisma.service.js';
 
-export interface LeftoverOutcome {
+export interface LineOutcome {
   subcategoryId: number;
-  leftoverCents: number;
-  /** carried: rolled into next month (positive or negative); swept: moved to savings; none: dropped. */
-  result: 'carried' | 'swept' | 'none';
+  /** available − spent for the line. For a fund, its balance at the end of the month. */
+  remainingCents: number;
+  /**
+   * regular: spending came out of savings (remaining is informational).
+   * carried: fund balance (positive or negative) became next month's carry-in.
+   * released: fund balance had no fund line to carry into, so it went to savings.
+   */
+  result: 'regular' | 'carried' | 'released';
 }
 
 export interface DeficitPaymentResult {
@@ -16,16 +21,96 @@ export interface DeficitPaymentResult {
   remainingDeficitCents: number;
 }
 
-export const SWEEP = 'sweep';
+export const INCOME = 'income';
+export const SPENDING = 'spending';
+export const FUND_CONTRIBUTION = 'fund_contribution';
+export const FUND_RELEASE = 'fund_release';
 export const DEFICIT_PAYMENT = 'deficit_payment';
+/** Entries written by closing a month (and removed by reopening it). */
+export const CLOSE_KINDS = [INCOME, SPENDING, FUND_CONTRIBUTION, FUND_RELEASE];
 
-/** This month's budget for a line: limit + carry-in (may be negative) + deficit paid from savings. */
+/** A line's budget for the month: limit + carry-in (may be negative) + deficit paid from savings. */
 export function lineAvailable(line: { limitCents: number; carryInCents: number; deficitPaidCents: number }): number {
   return line.limitCents + line.carryInCents + line.deficitPaidCents;
 }
 
+interface LineLike {
+  subcategoryId: number;
+  limitCents: number;
+  carryInCents: number;
+  deficitPaidCents: number;
+  fund: boolean;
+}
+
+export interface SavingsMove {
+  kind: typeof INCOME | typeof SPENDING | typeof FUND_CONTRIBUTION | typeof FUND_RELEASE;
+  subcategoryId: number;
+  amountCents: number;
+}
+
+export interface ClosePlan {
+  moves: SavingsMove[];
+  /** subcategoryId → carry-in for next month's fund line. */
+  carries: Map<number, number>;
+  outcomes: LineOutcome[];
+}
+
 /**
- * Month lifecycle rules: auto-copy, close (rollovers and savings sweeps), and reopen.
+ * Pure close calculation. Savings changes by income − regular spending − fund contributions; each fund's balance
+ * (limit + carry-in + deficit paid − spent) carries into next month's fund line, or is released to savings when there
+ * is none. A regular line that still holds a carry-in or deficit payment (its subcategory was switched from a fund
+ * this month) releases that money too, so nothing is lost.
+ *
+ * Invariant: savings + Σ fund balances changes by exactly income − all spending.
+ */
+export function planClose(
+  lines: LineLike[],
+  spent: Map<number, number>,
+  income: Map<number, number>,
+  nextFundLines: Set<number>,
+): ClosePlan {
+  const moves: SavingsMove[] = [];
+  const carries = new Map<number, number>();
+  const outcomes: LineOutcome[] = [];
+
+  for (const [subcategoryId, amountCents] of income) {
+    if (amountCents !== 0) moves.push({ kind: INCOME, subcategoryId, amountCents });
+  }
+
+  const lineBySub = new Map(lines.map((line) => [line.subcategoryId, line]));
+  for (const [subcategoryId, amount] of spent) {
+    if (amount !== 0 && !lineBySub.get(subcategoryId)?.fund) {
+      moves.push({ kind: SPENDING, subcategoryId, amountCents: -amount });
+    }
+  }
+
+  for (const line of lines) {
+    const remainingCents = lineAvailable(line) - (spent.get(line.subcategoryId) ?? 0);
+    if (!line.fund) {
+      const held = line.carryInCents + line.deficitPaidCents;
+      if (held !== 0) moves.push({ kind: FUND_RELEASE, subcategoryId: line.subcategoryId, amountCents: held });
+      outcomes.push({ subcategoryId: line.subcategoryId, remainingCents, result: 'regular' });
+      continue;
+    }
+    if (line.limitCents !== 0) {
+      moves.push({ kind: FUND_CONTRIBUTION, subcategoryId: line.subcategoryId, amountCents: -line.limitCents });
+    }
+    if (nextFundLines.has(line.subcategoryId)) {
+      carries.set(line.subcategoryId, remainingCents);
+      outcomes.push({ subcategoryId: line.subcategoryId, remainingCents, result: 'carried' });
+    } else {
+      if (remainingCents !== 0) {
+        moves.push({ kind: FUND_RELEASE, subcategoryId: line.subcategoryId, amountCents: remainingCents });
+      }
+      outcomes.push({ subcategoryId: line.subcategoryId, remainingCents, result: 'released' });
+    }
+  }
+
+  return { moves, carries, outcomes };
+}
+
+/**
+ * Month lifecycle rules: auto-copy, close (savings flow and fund carry-overs), reopen, and deficit payments.
  * Every public method runs inside a single database transaction.
  */
 @Injectable()
@@ -50,7 +135,6 @@ export class BudgetLifecycleService {
 
     const subcategories = await db.subcategory.findMany({
       where: { archivedAt: null, category: { archivedAt: null, kind: 'expense' } },
-      include: { category: true },
     });
 
     await db.budgetMonth.create({
@@ -63,7 +147,7 @@ export class BudgetLifecycleService {
             subcategoryId: sub.id,
             limitCents: sourceLimits.get(sub.id) ?? sub.defaultLimitCents,
             carryInCents: 0,
-            rollover: sub.category.rollover,
+            fund: sub.fund,
           })),
         },
       },
@@ -76,15 +160,20 @@ export class BudgetLifecycleService {
     if (row?.status === 'closed') throw monthClosed(month);
   }
 
-  /** Expense spending per subcategory for a month. */
-  async spentBySubcategory(db: Db, month: string): Promise<Map<number, number>> {
+  /** Transaction totals per subcategory for a month and type. */
+  async totalsBySubcategory(db: Db, month: string, type: 'income' | 'expense'): Promise<Map<number, number>> {
     const { first, last } = monthBounds(month);
     const rows = await db.transaction.groupBy({
       by: ['subcategoryId'],
-      where: { type: 'expense', date: { gte: first, lte: last } },
+      where: { type, date: { gte: first, lte: last } },
       _sum: { amountCents: true },
     });
     return new Map(rows.map((row) => [row.subcategoryId, row._sum.amountCents ?? 0]));
+  }
+
+  /** Expense spending per subcategory for a month. */
+  spentBySubcategory(db: Db, month: string): Promise<Map<number, number>> {
+    return this.totalsBySubcategory(db, month, 'expense');
   }
 
   async savingsBalance(db: Db): Promise<number> {
@@ -101,13 +190,8 @@ export class BudgetLifecycleService {
     return row?.month ?? null;
   }
 
-  /**
-   * Close a month. For each line, leftover = limit + carryIn + deficitPaid - spent:
-   *  - rollover with a matching next line → next month's carryIn = leftover, even when negative
-   *  - leftover > 0 otherwise (no rollover, or no matching next line) → swept to savings
-   *  - leftover ≤ 0 otherwise → nothing carries
-   */
-  close(month: string, now: Date = new Date()): Promise<LeftoverOutcome[]> {
+  /** Close a month: write its savings entries and carry fund balances into next month. See {@link planClose}. */
+  close(month: string, now: Date = new Date()): Promise<LineOutcome[]> {
     return this.prisma.$transaction(async (tx) => {
       await this.ensureMonthIn(tx, month);
       const current = await tx.budgetMonth.findUniqueOrThrow({ where: { month }, include: { lines: true } });
@@ -119,41 +203,37 @@ export class BudgetLifecycleService {
       if (nextMonth.status === 'closed') {
         throw conflict(`${monthLabel(next)} is closed. Reopen it before closing ${monthLabel(month)}.`);
       }
-      const nextLines = new Map(nextMonth.lines.map((line) => [line.subcategoryId, line]));
 
       // Carry-ins are owned by this close; start from a clean slate.
       await tx.budgetLine.updateMany({ where: { month: next }, data: { carryInCents: 0 } });
 
-      const spent = await this.spentBySubcategory(tx, month);
-      const outcomes: LeftoverOutcome[] = [];
+      const plan = planClose(
+        current.lines,
+        await this.totalsBySubcategory(tx, month, 'expense'),
+        await this.totalsBySubcategory(tx, month, 'income'),
+        new Set(nextMonth.lines.filter((line) => line.fund).map((line) => line.subcategoryId)),
+      );
 
-      for (const line of current.lines) {
-        const leftoverCents = lineAvailable(line) - (spent.get(line.subcategoryId) ?? 0);
-        const nextLine = nextLines.get(line.subcategoryId);
-        if (line.rollover && nextLine) {
-          if (leftoverCents !== 0) {
-            await tx.budgetLine.update({ where: { id: nextLine.id }, data: { carryInCents: leftoverCents } });
-          }
-          outcomes.push({ subcategoryId: line.subcategoryId, leftoverCents, result: leftoverCents === 0 ? 'none' : 'carried' });
-        } else if (leftoverCents > 0) {
-          await tx.savingsEntry.create({
-            data: { kind: SWEEP, month, subcategoryId: line.subcategoryId, amountCents: leftoverCents, createdAt: now },
-          });
-          outcomes.push({ subcategoryId: line.subcategoryId, leftoverCents, result: 'swept' });
-        } else {
-          outcomes.push({ subcategoryId: line.subcategoryId, leftoverCents, result: 'none' });
+      const nextIds = new Map(nextMonth.lines.map((line) => [line.subcategoryId, line.id]));
+      for (const [subcategoryId, carryInCents] of plan.carries) {
+        if (carryInCents !== 0) {
+          await tx.budgetLine.update({ where: { id: nextIds.get(subcategoryId)! }, data: { carryInCents } });
         }
+      }
+      if (plan.moves.length) {
+        await tx.savingsEntry.createMany({
+          data: plan.moves.map((move) => ({ ...move, month, createdAt: now })),
+        });
       }
 
       await tx.budgetMonth.update({ where: { month }, data: { status: 'closed', closedAt: now } });
-      return outcomes;
+      return plan.outcomes;
     });
   }
 
   /**
-   * Reverse a close. Allowed only while the following month is open, and only when removing the
-   * month's sweeps would not leave savings below zero (deficit payments may have already used them).
-   * Deficit payments recorded on the month stay in place.
+   * Reverse a close. Allowed only while the following month is open. Removes the month's close entries and resets
+   * next month's carry-ins; deficit payments recorded on the month stay in place.
    */
   reopen(month: string): Promise<void> {
     return this.prisma.$transaction(async (tx) => {
@@ -166,16 +246,7 @@ export class BudgetLifecycleService {
         throw conflict(`Reopen ${monthLabel(next)} first. Months reopen newest-first.`);
       }
 
-      const { _sum } = await tx.savingsEntry.aggregate({ where: { month, kind: SWEEP }, _sum: { amountCents: true } });
-      const swept = _sum.amountCents ?? 0;
-      const balance = await this.savingsBalance(tx);
-      if (balance - swept < 0) {
-        throw conflict(
-          `Reopening ${monthLabel(month)} would remove ${formatCents(swept)} of savings, but ${formatCents(swept - balance)} of it has already paid deficits. Undo those deficit payments first.`,
-        );
-      }
-
-      await tx.savingsEntry.deleteMany({ where: { month, kind: SWEEP } });
+      await tx.savingsEntry.deleteMany({ where: { month, kind: { in: CLOSE_KINDS } } });
       if (nextMonth) {
         await tx.budgetLine.updateMany({ where: { month: next }, data: { carryInCents: 0 } });
       }
@@ -184,16 +255,16 @@ export class BudgetLifecycleService {
   }
 
   /**
-   * Cover a rollover line's deficit (remaining < 0) from savings. Pays the whole deficit when savings
-   * allows, otherwise the entire savings balance. Recorded on the line and as a negative savings entry.
+   * Cover a fund's deficit (remaining < 0) from savings. Pays the whole deficit when savings allows, otherwise the
+   * entire positive savings balance. Recorded on the line and as a negative savings entry.
    */
   payDeficit(month: string, lineId: number, now: Date = new Date()): Promise<DeficitPaymentResult> {
     return this.prisma.$transaction(async (tx) => {
       const line = await tx.budgetLine.findUnique({ where: { id: lineId }, include: { subcategory: true } });
       if (!line || line.month !== month) throw notFound(`Budget line ${lineId} not found in ${month}`);
       await this.assertOpen(tx, month);
-      if (!line.rollover) {
-        throw conflict(`${line.subcategory.name} doesn't roll over, so its deficit resets when the month closes.`);
+      if (!line.fund) {
+        throw conflict(`${line.subcategory.name} isn't a fund, so its spending already comes out of savings.`);
       }
 
       const spent = (await this.spentBySubcategory(tx, month)).get(line.subcategoryId) ?? 0;
@@ -237,11 +308,11 @@ export class BudgetLifecycleService {
     });
   }
 
-  /** Propagate a category's rollover flag to lines in open months only. */
-  async applyRolloverToOpenMonths(db: Db, categoryId: number, rollover: boolean): Promise<void> {
+  /** Propagate a subcategory's fund flag to its lines in open months only. */
+  async applyFundToOpenMonths(db: Db, subcategoryId: number, fund: boolean): Promise<void> {
     await db.budgetLine.updateMany({
-      where: { subcategory: { categoryId }, budgetMonth: { status: 'open' } },
-      data: { rollover },
+      where: { subcategoryId, budgetMonth: { status: 'open' } },
+      data: { fund },
     });
   }
 
@@ -255,7 +326,7 @@ export class BudgetLifecycleService {
     });
     for (const { month } of openMonths) {
       await db.budgetLine.create({
-        data: { month, subcategoryId, limitCents: sub.defaultLimitCents, carryInCents: 0, rollover: sub.category.rollover },
+        data: { month, subcategoryId, limitCents: sub.defaultLimitCents, carryInCents: 0, fund: sub.fund },
       });
     }
   }

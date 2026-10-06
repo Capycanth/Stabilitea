@@ -20,10 +20,6 @@ export class CreateCategoryDto implements CreateCategoryRequest {
 
   @IsIn(['income', 'expense'], { message: 'Kind must be income or expense' })
   kind!: CategoryKind;
-
-  @IsOptional()
-  @IsBoolean()
-  rollover?: boolean;
 }
 
 export class UpdateCategoryDto implements UpdateCategoryRequest {
@@ -33,10 +29,6 @@ export class UpdateCategoryDto implements UpdateCategoryRequest {
   @IsNotEmpty({ message: 'Name is required' })
   @MaxLength(60, { message: 'Name must be 60 characters or fewer' })
   name?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  rollover?: boolean;
 
   @IsOptional()
   @IsInt()
@@ -60,6 +52,10 @@ export class CreateSubcategoryDto implements CreateSubcategoryRequest {
   @Min(0, { message: 'Default limit cannot be negative' })
   @Max(MAX_CENTS)
   defaultLimitCents?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  fund?: boolean;
 }
 
 export class UpdateSubcategoryDto implements UpdateSubcategoryRequest {
@@ -80,6 +76,10 @@ export class UpdateSubcategoryDto implements UpdateSubcategoryRequest {
   @Min(0, { message: 'Default limit cannot be negative' })
   @Max(MAX_CENTS)
   defaultLimitCents?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  fund?: boolean;
 
   @IsOptional()
   @IsInt()

@@ -14,7 +14,7 @@ const line: BudgetLineDto = {
   carryInCents: 2_500,
   deficitPaidCents: 0,
   availableCents: 52_500,
-  rollover: true,
+  fund: true,
   spentCents: 55_000,
   remainingCents: -2_500,
 };
@@ -117,7 +117,7 @@ describe('BudgetLineRow', () => {
     expect(el.textContent).toContain('Enter a limit (0 for none)');
   });
 
-  it('offers to pay a rollover deficit from savings', async () => {
+  it('offers to pay a fund deficit from savings', async () => {
     const { fixture, el } = await render();
     const button = [...el.querySelectorAll('button')].find((b) => b.textContent?.includes('Pay from savings'));
     expect(button?.textContent).toContain('for Groceries');
@@ -131,21 +131,30 @@ describe('BudgetLineRow', () => {
     await fixture.whenStable();
     const text = el.textContent ?? '';
     expect(text).toContain('-$30.00');
-    expect(text).toContain('deficit carried from last month');
+    expect(text).toContain('fund deficit carried from last month');
     expect(text).toContain('$10.00');
     expect(text).toContain('Over by $70.00');
   });
 
-  it('hides the deficit payment without savings or for non-rollover lines', async () => {
+  it('hides the deficit payment without savings or for regular lines', async () => {
     const { fixture, el } = await render();
     const payButton = () => [...el.querySelectorAll('button')].find((b) => b.textContent?.includes('Pay from savings'));
     fixture.componentInstance.savings.set(0);
     await fixture.whenStable();
     expect(payButton()).toBeUndefined();
     fixture.componentInstance.savings.set(10_000);
-    fixture.componentInstance.line.set({ ...line, rollover: false });
+    fixture.componentInstance.line.set({ ...line, fund: false, carryInCents: 0 });
     await fixture.whenStable();
     expect(payButton()).toBeUndefined();
+  });
+
+  it('marks funds and shows no balance-in for regular lines', async () => {
+    const { fixture, el } = await render();
+    expect(el.querySelector('th')?.textContent).toContain('Fund');
+    fixture.componentInstance.line.set({ ...line, fund: false, carryInCents: 0, availableCents: 50_000, remainingCents: -5_000 });
+    await fixture.whenStable();
+    expect(el.querySelector('th')?.textContent).not.toContain('Fund');
+    expect(el.querySelector('[data-label="Balance in"]')?.textContent?.trim()).toBe('—');
   });
 
   it('is read-only in a closed month', async () => {

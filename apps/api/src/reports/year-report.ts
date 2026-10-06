@@ -1,16 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { monthBounds } from '@stabilitea/shared';
-import { DEFICIT_PAYMENT, lineAvailable, SWEEP } from '../budgets/budget-lifecycle.service.js';
+import { DEFICIT_PAYMENT, FUND_CONTRIBUTION, FUND_RELEASE, lineAvailable } from '../budgets/budget-lifecycle.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 export type MonthReportStatus = 'open' | 'closed' | 'not budgeted';
-export type CloseOutcome = 'carried' | 'carried-deficit' | 'swept' | 'reset' | 'none' | 'open';
+export type CloseOutcome = 'regular' | 'carried' | 'carried-deficit' | 'released' | 'open';
 
 export interface LineReport {
   month: string;
   categoryName: string;
   subcategoryName: string;
-  rollover: boolean;
+  fund: boolean;
   limitCents: number;
   carryInCents: number;
   deficitPaidCents: number;
@@ -30,9 +30,13 @@ export interface MonthReport {
   expenseCents: number;
   netCents: number;
   budgetedCents: number;
-  carryInCents: number;
-  sweptCents: number;
+  /** Moved from savings into funds at close. */
+  fundContributionCents: number;
+  /** Fund balances handed back to savings at close (may be negative). */
+  fundReleaseCents: number;
   deficitPaidCents: number;
+  /** Sum of the month's savings entries (0 for a month that isn't closed, apart from deficit payments). */
+  savingsChangeCents: number;
   savingsBalanceEndCents: number;
   lines: LineReport[];
 }
@@ -55,8 +59,10 @@ export interface YearReport {
     expenseCents: number;
     netCents: number;
     budgetedCents: number;
-    sweptCents: number;
+    fundContributionCents: number;
+    fundReleaseCents: number;
     deficitPaidCents: number;
+    savingsChangeCents: number;
     deficitPaymentCount: number;
     savingsBalanceStartCents: number;
     savingsBalanceEndCents: number;
@@ -64,11 +70,11 @@ export interface YearReport {
   };
 }
 
-function outcomeFor(status: MonthReportStatus, rollover: boolean, remaining: number): CloseOutcome {
+function outcomeFor(status: MonthReportStatus, fund: boolean, released: boolean, remaining: number): CloseOutcome {
   if (status !== 'closed') return 'open';
-  if (rollover) return remaining === 0 ? 'none' : remaining < 0 ? 'carried-deficit' : 'carried';
-  if (remaining > 0) return 'swept';
-  return remaining < 0 ? 'reset' : 'none';
+  if (!fund) return 'regular';
+  if (released) return 'released';
+  return remaining < 0 ? 'carried-deficit' : 'carried';
 }
 
 /** Gathers a calendar year's budgets, actuals and savings movements. Read-only: never creates months. */
@@ -133,17 +139,19 @@ export class YearReportBuilder {
       const expenseCents = [...spent.values()].reduce((sum, v) => sum + v, 0);
 
       const monthEntries = entries.filter((e) => e.month === month);
-      const sweptCents = monthEntries.filter((e) => e.kind === SWEEP).reduce((sum, e) => sum + e.amountCents, 0);
+      const kindTotal = (kind: string) => monthEntries.filter((e) => e.kind === kind).reduce((sum, e) => sum + e.amountCents, 0);
+      const released = new Set(monthEntries.filter((e) => e.kind === FUND_RELEASE).map((e) => e.subcategoryId));
       const payments = monthEntries.filter((e) => e.kind === DEFICIT_PAYMENT);
       deficitPaymentCount += payments.length;
-      balance += monthEntries.reduce((sum, e) => sum + e.amountCents, 0);
+      const savingsChangeCents = monthEntries.reduce((sum, e) => sum + e.amountCents, 0);
+      balance += savingsChangeCents;
 
       const lineSources = [
         ...(budget?.lines ?? []),
         // Spending without a budget line this month still shows up.
         ...[...spent.keys()]
           .filter((id) => !budget?.lines.some((l) => l.subcategoryId === id))
-          .map((id) => ({ subcategoryId: id, limitCents: 0, carryInCents: 0, deficitPaidCents: 0, rollover: subById.get(id)?.category.rollover ?? false })),
+          .map((id) => ({ subcategoryId: id, limitCents: 0, carryInCents: 0, deficitPaidCents: 0, fund: false })),
       ].sort((a, b) => {
         const [ka, kb] = [sortKey(a.subcategoryId), sortKey(b.subcategoryId)];
         for (let i = 0; i < ka.length; i++) if (ka[i] !== kb[i]) return ka[i]! - kb[i]!;
@@ -174,14 +182,14 @@ export class YearReportBuilder {
           month,
           categoryName: sub?.category.name ?? 'Unknown',
           subcategoryName: sub?.name ?? `#${line.subcategoryId}`,
-          rollover: line.rollover,
+          fund: line.fund,
           limitCents: line.limitCents,
           carryInCents: line.carryInCents,
           deficitPaidCents: line.deficitPaidCents,
           availableCents,
           spentCents,
           remainingCents,
-          outcome: outcomeFor(status, line.rollover, remainingCents),
+          outcome: outcomeFor(status, line.fund, released.has(line.subcategoryId), remainingCents),
         };
       });
 
@@ -193,9 +201,10 @@ export class YearReportBuilder {
         expenseCents,
         netCents: incomeCents - expenseCents,
         budgetedCents: lines.reduce((sum, l) => sum + l.limitCents, 0),
-        carryInCents: lines.reduce((sum, l) => sum + l.carryInCents, 0),
-        sweptCents,
+        fundContributionCents: -kindTotal(FUND_CONTRIBUTION),
+        fundReleaseCents: kindTotal(FUND_RELEASE),
         deficitPaidCents: -payments.reduce((sum, e) => sum + e.amountCents, 0),
+        savingsChangeCents,
         savingsBalanceEndCents: balance,
         lines,
       };
@@ -215,8 +224,10 @@ export class YearReportBuilder {
         expenseCents: sum((m) => m.expenseCents),
         netCents: sum((m) => m.netCents),
         budgetedCents: sum((m) => m.budgetedCents),
-        sweptCents: sum((m) => m.sweptCents),
+        fundContributionCents: sum((m) => m.fundContributionCents),
+        fundReleaseCents: sum((m) => m.fundReleaseCents),
         deficitPaidCents: sum((m) => m.deficitPaidCents),
+        savingsChangeCents: sum((m) => m.savingsChangeCents),
         deficitPaymentCount,
         savingsBalanceStartCents,
         savingsBalanceEndCents: balance,

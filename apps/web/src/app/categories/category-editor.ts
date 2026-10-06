@@ -10,6 +10,7 @@ import { CategoryApi } from './category-api';
 interface SubcategoryDraft {
   name: string;
   defaultLimitCents: number | null;
+  fund: boolean;
 }
 
 /** Detail panel for a selected category. */
@@ -42,23 +43,6 @@ interface SubcategoryDraft {
       </div>
     </form>
 
-    @if (category().kind === 'expense') {
-      <div class="field">
-        <label class="checkbox">
-          <input type="checkbox" [checked]="category().rollover" [disabled]="busy()" (change)="toggleRollover($event)" aria-describedby="rollover-hint" />
-          Roll over leftovers
-        </label>
-        <p id="rollover-hint" class="hint">
-          @if (category().rollover) {
-            Unspent money carries into next month's limit when a month closes.
-          } @else {
-            Unspent money is swept into savings when a month closes.
-          }
-          Changes apply to open months only.
-        </p>
-      </div>
-    }
-
     <div class="row">
       <button type="button" class="btn btn-sm" [disabled]="busy() || isFirst()" (click)="move(-1)">
         <app-icon name="arrow-up" [size]="16" />Move up
@@ -86,9 +70,16 @@ interface SubcategoryDraft {
             <label for="sub-limit">Default limit</label>
             <app-money-input inputId="sub-limit" describedBy="sub-errors" [formField]="subForm.defaultLimitCents" />
           </div>
+          <label class="checkbox fund">
+            <input type="checkbox" [formField]="subForm.fund" />
+            Fund
+          </label>
         }
         <button type="submit" class="btn btn-primary" [disabled]="subForm().submitting()"><app-icon name="plus" />Add</button>
       </div>
+      @if (category().kind === 'expense') {
+        <p class="hint">A fund keeps its own balance from month to month. Leave it off and spending simply comes out of savings.</p>
+      }
       <div id="sub-errors">
         @if (subForm.name().touched()) {
           @for (error of subForm.name().errors(); track $index) {
@@ -110,6 +101,7 @@ interface SubcategoryDraft {
     .fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
     .grow { flex: 1 1 180px; }
     .limit { width: 150px; }
+    .fund { min-height: 40px; }
   `,
 })
 export class CategoryEditor {
@@ -138,7 +130,7 @@ export class CategoryEditor {
 
   private readonly subModel = linkedSignal<number, SubcategoryDraft>({
     source: () => this.category().id,
-    computation: () => ({ name: '', defaultLimitCents: 0 }),
+    computation: () => ({ name: '', defaultLimitCents: 0, fund: false }),
   });
   protected readonly subForm = form(
     this.subModel,
@@ -148,11 +140,6 @@ export class CategoryEditor {
     },
     { submission: { action: () => this.addSubcategory() } },
   );
-
-  protected toggleRollover(event: Event): void {
-    const rollover = (event.target as HTMLInputElement).checked;
-    void this.update({ rollover }, rollover ? 'Leftovers will roll over.' : 'Leftovers will be swept to savings.');
-  }
 
   protected move(delta: number): void {
     void this.update({ sortOrder: this.index() + delta }, `Moved ${this.category().name}.`);
@@ -189,13 +176,14 @@ export class CategoryEditor {
   }
 
   private async addSubcategory(): Promise<TreeValidationResult> {
-    const { name, defaultLimitCents } = this.subModel();
+    const { name, defaultLimitCents, fund } = this.subModel();
     try {
       const sub = await this.api.createSubcategory(this.category().id, {
         name: name.trim(),
         defaultLimitCents: defaultLimitCents ?? 0,
+        fund: this.category().kind === 'expense' && fund,
       });
-      this.subForm().reset({ name: '', defaultLimitCents: 0 });
+      this.subForm().reset({ name: '', defaultLimitCents: 0, fund: false });
       this.notifier.success(`Added ${sub.name}.`);
       this.changed.emit();
       return undefined;

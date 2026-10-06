@@ -14,7 +14,12 @@ import { BudgetApi } from './budget-api';
   imports: [FormField, MoneyInput, MoneyPipe, Icon],
   host: { '[class.over]': 'line().remainingCents < 0' },
   template: `
-    <th scope="row" class="name">{{ line().subcategoryName }}</th>
+    <th scope="row" class="name">
+      {{ line().subcategoryName }}
+      @if (line().fund) {
+        <span class="chip chip-green fund"><app-icon name="rollover" [size]="12" />Fund</span>
+      }
+    </th>
     <td class="limit" data-label="Limit">
       @if (readonly()) {
         <span class="money">{{ line().limitCents | money }}</span>
@@ -35,10 +40,14 @@ import { BudgetApi } from './budget-api';
         </div>
       }
     </td>
-    <td class="end money" data-label="Carry-in" [class.deficit]="line().carryInCents < 0">
-      {{ line().carryInCents | money }}
-      @if (line().carryInCents < 0) {
-        <span class="visually-hidden">(deficit carried from last month)</span>
+    <td class="end money" data-label="Balance in" [class.deficit]="line().carryInCents < 0">
+      @if (line().fund || line().carryInCents !== 0) {
+        {{ line().carryInCents | money }}
+        @if (line().carryInCents < 0) {
+          <span class="visually-hidden">(fund deficit carried from last month)</span>
+        }
+      } @else {
+        <span class="muted" aria-label="Not a fund">—</span>
       }
     </td>
     <td class="end money" data-label="From savings">
@@ -69,6 +78,7 @@ import { BudgetApi } from './budget-api';
   styles: `
     :host(.over) .remaining { color: var(--st-orange); font-weight: 600; }
     .name { font-weight: 500; }
+    .fund { margin-left: 8px; font-size: 0.72rem; vertical-align: middle; }
     .limit { width: 160px; }
     .over-label { display: inline-flex; align-items: center; gap: 4px; }
     .deficit { color: var(--st-orange); }
@@ -99,9 +109,9 @@ export class BudgetLineRow {
 
   protected readonly saving = signal(false);
   protected readonly saveError = signal<string | null>(null);
-  /** Only rollover lines carry deficits, so only they can be paid down from savings. */
+  /** Only funds carry deficits, so only they can be paid down from savings. */
   protected readonly canPayDeficit = computed(
-    () => !this.readonly() && this.line().rollover && this.line().remainingCents < 0 && this.savingsBalanceCents() > 0,
+    () => !this.readonly() && this.line().fund && this.line().remainingCents < 0 && this.savingsBalanceCents() > 0,
   );
   protected readonly inputId = computed(() => `limit-${this.line().id}`);
   protected readonly errorId = computed(() => `limit-${this.line().id}-errors`);

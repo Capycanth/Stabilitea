@@ -9,19 +9,17 @@ const categories: CategoryDto[] = [
     id: 1,
     name: 'Income',
     kind: 'income',
-    rollover: false,
     sortOrder: 0,
     archivedAt: null,
-    subcategories: [{ id: 10, categoryId: 1, name: 'Salary', defaultLimitCents: 0, sortOrder: 0, archivedAt: null, transactionCount: 0 }],
+    subcategories: [{ id: 10, categoryId: 1, name: 'Salary', defaultLimitCents: 0, fund: false, sortOrder: 0, archivedAt: null, transactionCount: 0 }],
   },
   {
     id: 2,
     name: 'Food',
     kind: 'expense',
-    rollover: true,
     sortOrder: 1,
     archivedAt: null,
-    subcategories: [{ id: 20, categoryId: 2, name: 'Groceries', defaultLimitCents: 50_000, sortOrder: 0, archivedAt: null, transactionCount: 0 }],
+    subcategories: [{ id: 20, categoryId: 2, name: 'Groceries', defaultLimitCents: 50_000, fund: false, sortOrder: 0, archivedAt: null, transactionCount: 0 }],
   },
 ];
 
