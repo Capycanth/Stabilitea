@@ -7,7 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { configureApp } from '../src/app-setup.js';
 import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { seedStarterCategories } from '../src/prisma/starter-categories.js';
+import { seedStarterCategories } from './starter-categories.js';
 import { createTestDatabase, type TestDatabase } from './test-db.js';
 
 describe('Stabilitea API (e2e)', () => {

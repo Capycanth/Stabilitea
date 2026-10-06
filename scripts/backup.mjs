@@ -11,7 +11,7 @@ const source = path.join(root, 'data', 'stabilitea.db');
 const backups = path.join(root, 'data', 'backups');
 
 if (!fs.existsSync(source)) {
-  console.error(`No database found at ${source}. Run "npm run db:migrate" first.`);
+  console.error(`No database found at ${source}. Run "npm run db:push" first.`);
   process.exit(1);
 }
 

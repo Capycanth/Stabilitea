@@ -15,7 +15,7 @@ and one SQLite file at `data/stabilitea.db`.
 ## Quick start
 
 ```bash
-npm run setup     # install, create the database, add starter categories, build
+npm run setup     # install, create the database, build
 npm start         # http://localhost:3000
 ```
 
@@ -31,8 +31,7 @@ npm run dev       # open http://localhost:4200
 | `npm run build` | Build shared, API, and web |
 | `npm start` | Run the built API, which serves the web app at localhost:3000 |
 | `npm test` | Vitest across all workspaces |
-| `npm run db:migrate` | Apply Prisma migrations |
-| `npm run db:seed` | Insert starter categories (skipped if any exist) |
+| `npm run db:push` | Create or update the SQLite schema from `schema.prisma` |
 | `npm run backup` | Copy the DB to `data/backups/stabilitea-YYYYMMDD.db` (safe while running) |
 
 You can also download a full JSON export from **Download backup** in the sidebar (`GET /api/export`).
@@ -55,7 +54,7 @@ Rows where a deficit was paid from savings are highlighted. The report is read-o
 apps/
   web/        Angular 22.1 — standalone, zoneless, Signal Forms, httpResource, @angular/aria
   api/        NestJS 12 (ESM) + Prisma 7 + SQLite (better-sqlite3 adapter)
-    prisma/   schema.prisma, migrations/, seed.ts
+    prisma/   schema.prisma
 packages/
   shared/     Request/response types + pure month and money helpers used by both apps
 data/         stabilitea.db (gitignored), backups/

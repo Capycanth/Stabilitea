@@ -18,10 +18,9 @@
     "build": "npm run build -w @stabilitea/shared && npm run build -w @stabilitea/api && npm run build -w @stabilitea/web",
     "start": "npm run start:prod -w @stabilitea/api",
     "test": "npm run build -w @stabilitea/shared && npm run test --workspaces --if-present",
-    "db:migrate": "npm run db:migrate -w @stabilitea/api",
-    "db:seed": "npm run db:seed -w @stabilitea/api",
+    "db:push": "npm run db:push -w @stabilitea/api",
     "backup": "node scripts/backup.mjs",
-    "setup": "npm install && npm run db:migrate && npm run db:seed && npm run build"
+    "setup": "npm install && npm run db:push && npm run build"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

@@ -30,5 +30,6 @@ npm run build   # shared → api → web, no warnings
 npm test        # Vitest in shared, api (unit + e2e on a temp SQLite file), web
 ```
 
-Schema changes: edit `apps/api/prisma/schema.prisma`, run `npm run db:migrate:dev -w @stabilitea/api -- --name <change>`,
-and commit the generated migration folder.
+Schema changes: edit `apps/api/prisma/schema.prisma` and run `npm run db:push`. There are no migration files;
+the schema is the source of truth and tests build their temp DB from it. The app DB starts empty — starter
+categories are a test fixture in `apps/api/test/starter-categories.ts`.
