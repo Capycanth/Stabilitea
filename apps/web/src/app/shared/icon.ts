@@ -1,0 +1,133 @@
+import { Component, input } from '@angular/core';
+
+export type IconName =
+  | 'overview'
+  | 'transactions'
+  | 'budget'
+  | 'categories'
+  | 'savings'
+  | 'chevron-left'
+  | 'chevron-right'
+  | 'plus'
+  | 'edit'
+  | 'trash'
+  | 'warning'
+  | 'check'
+  | 'lock'
+  | 'unlock'
+  | 'download'
+  | 'close'
+  | 'arrow-up'
+  | 'arrow-down'
+  | 'archive'
+  | 'rollover'
+  | 'info'
+  | 'report'
+  | 'piggy-out';
+
+/** Decorative stroke icon. Always pair with visible or visually-hidden text. */
+@Component({
+  selector: 'app-icon',
+  host: { class: 'icon', 'aria-hidden': 'true' },
+  template: `
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      [attr.width]="size()"
+      [attr.height]="size()"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      focusable="false"
+    >
+      @switch (name()) {
+        @case ('overview') {
+          <rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" />
+          <rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="16" width="7" height="5" rx="1.5" />
+        }
+        @case ('transactions') {
+          <path d="M8 6h13M8 12h13M8 18h13" /><circle cx="3.5" cy="6" r="1" /><circle cx="3.5" cy="12" r="1" />
+          <circle cx="3.5" cy="18" r="1" />
+        }
+        @case ('budget') {
+          <path d="M3 3v18h18" /><path d="M7 15l4-4 3 3 6-6" />
+        }
+        @case ('categories') {
+          <path d="M4 5h6M4 5v14M4 12h6M4 19h6" /><rect x="12" y="3" width="9" height="4" rx="1" />
+          <rect x="12" y="10" width="9" height="4" rx="1" /><rect x="12" y="17" width="9" height="4" rx="1" />
+        }
+        @case ('savings') {
+          <path d="M5 11c0-3.3 3.1-6 7-6s7 2.7 7 6v2c0 2-1 3.5-2.5 4.5V20h-3v-1.5h-3V20h-3v-2.5C6 16.5 5 15 5 13z" />
+          <path d="M9.5 9.5h5" /><path d="M19 11h2" />
+        }
+        @case ('chevron-left') {
+          <path d="M15 18l-6-6 6-6" />
+        }
+        @case ('chevron-right') {
+          <path d="M9 18l6-6-6-6" />
+        }
+        @case ('plus') {
+          <path d="M12 5v14M5 12h14" />
+        }
+        @case ('edit') {
+          <path d="M4 20h4L19 9l-4-4L4 16z" /><path d="M13.5 6.5l4 4" />
+        }
+        @case ('trash') {
+          <path d="M4 7h16M10 11v6M14 11v6" /><path d="M6 7l1 13h10l1-13M9 7V4h6v3" />
+        }
+        @case ('warning') {
+          <path d="M12 3l9.5 17h-19z" /><path d="M12 10v4M12 17.5v.01" />
+        }
+        @case ('check') {
+          <path d="M5 12.5l4.5 4.5L19 7.5" />
+        }
+        @case ('lock') {
+          <rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" />
+        }
+        @case ('unlock') {
+          <rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V8a4 4 0 0 1 7.5-2" />
+        }
+        @case ('download') {
+          <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />
+        }
+        @case ('close') {
+          <path d="M6 6l12 12M18 6L6 18" />
+        }
+        @case ('arrow-up') {
+          <path d="M12 19V5M6 11l6-6 6 6" />
+        }
+        @case ('arrow-down') {
+          <path d="M12 5v14M6 13l6 6 6-6" />
+        }
+        @case ('archive') {
+          <rect x="3" y="4" width="18" height="5" rx="1" /><path d="M5 9v10h14V9M10 13h4" />
+        }
+        @case ('rollover') {
+          <path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3" /><path d="M18 3v4h-4M6 21v-4h4" />
+        }
+        @case ('report') {
+          <rect x="4" y="3" width="16" height="18" rx="2" /><path d="M4 9h16M4 15h16M10 3v18" />
+        }
+        @case ('piggy-out') {
+          <path d="M12 3v8M8.5 7.5L12 11l3.5-3.5" /><path d="M4 14h16v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" />
+        }
+        @case ('info') {
+          <circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8v.01" />
+        }
+      }
+    </svg>
+  `,
+  styles: `
+    :host {
+      display: inline-flex;
+      flex: none;
+      line-height: 0;
+    }
+  `,
+})
+export class Icon {
+  readonly name = input.required<IconName>();
+  readonly size = input(18);
+}

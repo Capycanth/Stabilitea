@@ -1,0 +1,40 @@
+{
+  "name": "stabilitea",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local-only personal finance app: monthly budget vs. actual, rollovers, and savings.",
+  "type": "module",
+  "workspaces": [
+    "packages/shared",
+    "apps/api",
+    "apps/web"
+  ],
+  "engines": {
+    "node": "^22.22.3 || ^24.15.0 || >=26.0.0",
+    "npm": ">=11"
+  },
+  "scripts": {
+    "dev": "npm run build -w @stabilitea/shared && concurrently -k -n api,web -c green,yellow \"npm run dev -w @stabilitea/api\" \"npm run start -w @stabilitea/web\"",
+    "build": "npm run build -w @stabilitea/shared && npm run build -w @stabilitea/api && npm run build -w @stabilitea/web",
+    "start": "npm run start:prod -w @stabilitea/api",
+    "test": "npm run build -w @stabilitea/shared && npm run test --workspaces --if-present",
+    "db:migrate": "npm run db:migrate -w @stabilitea/api",
+    "db:seed": "npm run db:seed -w @stabilitea/api",
+    "backup": "node scripts/backup.mjs",
+    "setup": "npm install && npm run db:migrate && npm run db:seed && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "~6.0.2"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "esbuild@0.28.2": true,
+    "lmdb@3.5.6": true,
+    "msgpackr-extract@3.0.4": true,
+    "prisma@7.10.0": true,
+    "@parcel/watcher@2.6.0": true,
+    "@prisma/engines@7.10.0": true,
+    "@swc/core@1.16.2": true
+  }
+}

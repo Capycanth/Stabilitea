@@ -1,0 +1,120 @@
+// Stabilitea data model. Money is integer cents; months are 'YYYY-MM'; dates are 'YYYY-MM-DD'.
+// The database URL lives in prisma.config.ts (DATABASE_URL, default file:../../data/stabilitea.db).
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+/// Parent bucket for display and grouping.
+model Category {
+  id            Int           @id @default(autoincrement())
+  name          String
+  /// 'income' | 'expense'
+  kind          String
+  /// Expense only. true = carry leftover forward; false = sweep to savings.
+  rollover      Boolean       @default(false)
+  sortOrder     Int           @default(0) @map("sort_order")
+  archivedAt    DateTime?     @map("archived_at")
+  subcategories Subcategory[]
+
+  @@map("category")
+}
+
+/// Where limits and transactions attach.
+model Subcategory {
+  id                Int            @id @default(autoincrement())
+  categoryId        Int            @map("category_id")
+  name              String
+  defaultLimitCents Int            @default(0) @map("default_limit_cents")
+  sortOrder         Int            @default(0) @map("sort_order")
+  archivedAt        DateTime?      @map("archived_at")
+  category          Category       @relation(fields: [categoryId], references: [id])
+  budgetLines       BudgetLine[]
+  transactions      Transaction[]
+  savingsEntries    SavingsEntry[]
+
+  @@unique([categoryId, name])
+  @@map("subcategory")
+}
+
+/// One row per budgeted month.
+model BudgetMonth {
+  month              String         @id
+  plannedIncomeCents Int            @default(0) @map("planned_income_cents")
+  /// 'open' | 'closed'
+  status             String         @default("open")
+  closedAt           DateTime?      @map("closed_at")
+  lines              BudgetLine[]
+  savingsEntries     SavingsEntry[]
+
+  @@map("budget_month")
+}
+
+/// One subcategory's plan for one month.
+model BudgetLine {
+  id               Int            @id @default(autoincrement())
+  month            String
+  subcategoryId    Int            @map("subcategory_id")
+  limitCents       Int            @map("limit_cents")
+  /// Leftover rolled in from last month; set only by closing the prior month. Negative for a carried deficit.
+  carryInCents     Int            @default(0) @map("carry_in_cents")
+  /// Snapshot of the category flag when the line was created.
+  rollover         Boolean
+  /// Total moved from savings to cover this line's deficit this month.
+  deficitPaidCents Int            @default(0) @map("deficit_paid_cents")
+  budgetMonth      BudgetMonth    @relation(fields: [month], references: [month], onDelete: Cascade)
+  subcategory      Subcategory    @relation(fields: [subcategoryId], references: [id])
+  savingsEntries   SavingsEntry[]
+
+  @@unique([month, subcategoryId])
+  @@map("budget_line")
+}
+
+model Transaction {
+  id            Int         @id @default(autoincrement())
+  /// 'YYYY-MM-DD'. Month is derived from it.
+  date          String
+  /// 'income' | 'expense'; must match the category kind.
+  type          String
+  /// Always positive.
+  amountCents   Int         @map("amount_cents")
+  subcategoryId Int         @map("subcategory_id")
+  payee         String?
+  note          String?
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  subcategory   Subcategory @relation(fields: [subcategoryId], references: [id])
+
+  @@index([date])
+  @@index([subcategoryId])
+  @@map("transaction")
+}
+
+/// Savings ledger. The balance is the sum of amount_cents.
+model SavingsEntry {
+  id            Int          @id @default(autoincrement())
+  /// 'sweep' (created by closing the month) | 'deficit_payment' (withdrawal covering a line's deficit)
+  kind          String       @default("sweep")
+  /// Month whose close created it, or whose budget line the deficit payment covered.
+  month         String
+  subcategoryId Int?         @map("subcategory_id")
+  /// Budget line a deficit payment was applied to.
+  budgetLineId  Int?         @map("budget_line_id")
+  /// Positive for sweeps, negative for deficit payments.
+  amountCents   Int          @map("amount_cents")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  budgetMonth   BudgetMonth  @relation(fields: [month], references: [month])
+  subcategory   Subcategory? @relation(fields: [subcategoryId], references: [id])
+  budgetLine    BudgetLine?  @relation(fields: [budgetLineId], references: [id])
+
+  @@index([month])
+  @@index([budgetLineId])
+  @@map("savings_entry")
+}

@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+.angular/
+data/*.db
+data/*.db-journal
+data/backups/
+apps/api/src/generated/
+apps/api/.env
+.env
+*.log
+.DS_Store
