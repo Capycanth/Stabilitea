@@ -20,7 +20,7 @@ export class ExportController {
     ]);
     return {
       app: 'stabilitea',
-      schemaVersion: 2,
+      schemaVersion: 3,
       exportedAt: new Date().toISOString(),
       groups,
       categories,

@@ -50,11 +50,13 @@
                           <span class="node-row">
                             <span class="node-name">{{ category.name }}</span>
                             @if (group.kind === 'expense') {
-                              <span class="money muted small">{{ category.defaultLimitCents | money }}</span>
+                              @if (category.type === 'recurring' && category.billCents !== null && category.billMonths !== null) {
+                                <span class="money muted small">{{ billShortText(category.billCents, category.billMonths) }}</span>
+                              } @else {
+                                <span class="money muted small">{{ category.defaultLimitCents | money }}</span>
+                              }
                             }
-                            @if (category.fund) {
-                              <span class="chip chip-green">Fund</span>
-                            }
+                            <app-type-chip [type]="category.type" />
                             @if (category.archivedAt) {
                               <span class="chip">Archived</span>
                             }
@@ -96,7 +98,7 @@
           @default {
             <div class="placeholder">
               <app-icon name="groups" [size]="28" />
-              <p>Select a group or category to rename it, make a category a fund, reorder, or archive it.</p>
+              <p>Select a group or category to rename it, change a category's type, reorder, or archive it.</p>
             </div>
           }
         }

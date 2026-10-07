@@ -28,8 +28,8 @@ describe('BudgetLifecycleService', () => {
         sortOrder: 1,
         categories: {
           create: [
-            { name: 'Groceries', defaultLimitCents: 50_000, fund: true },
-            { name: 'Dining Out', defaultLimitCents: 20_000, fund: true, sortOrder: 1 },
+            { name: 'Groceries', defaultLimitCents: 50_000, type: 'fund' },
+            { name: 'Dining Out', defaultLimitCents: 20_000, type: 'fund', sortOrder: 1 },
           ],
         },
       },
@@ -83,12 +83,12 @@ describe('BudgetLifecycleService', () => {
   /** Savings plus every fund balance carried into `month` (plus deficits paid there). */
   const totalHeld = async (month: string) =>
     (await balance()) +
-    [...(await lines(month)).values()].filter((l) => l.fund).reduce((sum, l) => sum + l.carryInCents + l.deficitPaidCents, 0);
+    [...(await lines(month)).values()].filter((l) => l.type !== 'standard').reduce((sum, l) => sum + l.carryInCents + l.deficitPaidCents, 0);
 
   describe('planClose', () => {
-    const line = (categoryId: number, fund: boolean, limitCents: number, carryInCents = 0, deficitPaidCents = 0) => ({
+    const line = (categoryId: number, fund: boolean | 'recurring', limitCents: number, carryInCents = 0, deficitPaidCents = 0) => ({
       categoryId,
-      fund,
+      type: fund === 'recurring' ? 'recurring' : fund ? 'fund' : 'standard',
       limitCents,
       carryInCents,
       deficitPaidCents,
@@ -99,7 +99,7 @@ describe('BudgetLifecycleService', () => {
         [line(1, false, 100_000), line(2, true, 20_000, -5_000)],
         new Map([[1, 90_000], [2, 25_000]]),
         new Map([[9, 300_000]]),
-        new Set([2]),
+        new Map([[2, 'fund']]),
       );
       expect(plan.moves).toEqual([
         { kind: 'income', categoryId: 9, amountCents: 300_000 },
@@ -114,22 +114,56 @@ describe('BudgetLifecycleService', () => {
     });
 
     it('releases a fund balance when next month has no fund line for it', () => {
-      const plan = planClose([line(2, true, 20_000, 3_000)], new Map(), new Map(), new Set());
+      const plan = planClose([line(2, true, 20_000, 3_000)], new Map(), new Map(), new Map());
       expect(plan.moves).toContainEqual({ kind: 'fund_release', categoryId: 2, amountCents: 23_000 });
       expect(plan.carries.size).toBe(0);
       expect(plan.outcomes[0]).toMatchObject({ result: 'released', remainingCents: 23_000 });
     });
 
     it('releases money still held on a line that was switched from fund to regular', () => {
-      const plan = planClose([line(1, false, 10_000, -4_000, 1_000)], new Map([[1, 2_000]]), new Map(), new Set());
+      const plan = planClose([line(1, false, 10_000, -4_000, 1_000)], new Map([[1, 2_000]]), new Map(), new Map());
       expect(plan.moves).toEqual([
         { kind: 'spending', categoryId: 1, amountCents: -2_000 },
         { kind: 'fund_release', categoryId: 1, amountCents: -3_000 },
       ]);
     });
 
+    it('stores a recurring share and carries the stored money while the bill is unpaid', () => {
+      const plan = planClose([line(3, 'recurring', 5_000, 10_000)], new Map(), new Map(), new Map([[3, 'recurring']]));
+      expect(plan.moves).toEqual([{ kind: 'recurring_store', categoryId: 3, amountCents: -5_000 }]);
+      expect([...plan.carries]).toEqual([[3, 15_000]]);
+      expect(plan.settled.size).toBe(0);
+      expect(plan.outcomes[0]).toMatchObject({ result: 'stored', remainingCents: 15_000 });
+    });
+
+    it('pays a recurring bill from the stored money and settles the leftover with savings', () => {
+      const plan = planClose([line(3, 'recurring', 5_000, 15_000)], new Map([[3, 19_500]]), new Map(), new Map([[3, 'recurring']]));
+      expect(plan.moves).toEqual([
+        { kind: 'recurring_store', categoryId: 3, amountCents: -5_000 },
+        { kind: 'recurring_release', categoryId: 3, amountCents: 500 },
+      ]);
+      expect(plan.carries.size).toBe(0);
+      expect([...plan.settled]).toEqual([3]);
+      expect(plan.outcomes[0]).toMatchObject({ result: 'settled', remainingCents: 500 });
+    });
+
+    it('takes a recurring shortfall out of savings', () => {
+      const plan = planClose([line(3, 'recurring', 5_000, 15_000)], new Map([[3, 21_000]]), new Map(), new Map());
+      expect(plan.moves).toContainEqual({ kind: 'recurring_release', categoryId: 3, amountCents: -1_000 });
+      expect(plan.moves.some((m) => m.kind === 'spending')).toBe(false);
+    });
+
+    it('releases stored money when the category stops being recurring', () => {
+      const unpaid = planClose([line(3, 'recurring', 5_000, 10_000)], new Map(), new Map(), new Map([[3, 'standard']]));
+      expect(unpaid.moves).toContainEqual({ kind: 'recurring_release', categoryId: 3, amountCents: 15_000 });
+      expect(unpaid.outcomes[0]).toMatchObject({ result: 'released' });
+
+      const switched = planClose([line(3, false, 5_000, 10_000)], new Map(), new Map(), new Map(), new Map([[3, 'recurring']]));
+      expect(switched.moves).toEqual([{ kind: 'recurring_release', categoryId: 3, amountCents: 10_000 }]);
+    });
+
     it('counts spending without a budget line as regular spending', () => {
-      const plan = planClose([], new Map([[7, 1_234]]), new Map(), new Set());
+      const plan = planClose([], new Map([[7, 1_234]]), new Map(), new Map());
       expect(plan.moves).toEqual([{ kind: 'spending', categoryId: 7, amountCents: -1_234 }]);
     });
   });
@@ -144,8 +178,8 @@ describe('BudgetLifecycleService', () => {
       const byId = await lines('2026-08');
       expect([...byId.keys()].sort()).toEqual([groceries, dining, rent].sort());
       expect(byId.has(salary)).toBe(false);
-      expect(byId.get(groceries)).toMatchObject({ limitCents: 50_000, carryInCents: 0, fund: true });
-      expect(byId.get(rent)).toMatchObject({ limitCents: 100_000, carryInCents: 0, fund: false });
+      expect(byId.get(groceries)).toMatchObject({ limitCents: 50_000, carryInCents: 0, type: 'fund' });
+      expect(byId.get(rent)).toMatchObject({ limitCents: 100_000, carryInCents: 0, type: 'standard' });
     });
 
     it('is idempotent', async () => {
@@ -174,13 +208,13 @@ describe('BudgetLifecycleService', () => {
       await lifecycle.ensureMonth('2026-09');
       const byId = await lines('2026-09');
       expect(byId.has(dining)).toBe(false);
-      expect(byId.get(snacks.id)).toMatchObject({ limitCents: 3_000, fund: false });
+      expect(byId.get(snacks.id)).toMatchObject({ limitCents: 3_000, type: 'standard' });
     });
 
-    it('snapshots the category fund flag at creation time', async () => {
-      await prisma.category.update({ where: { id: groceries }, data: { fund: false } });
+    it('snapshots the category type at creation time', async () => {
+      await prisma.category.update({ where: { id: groceries }, data: { type: 'standard' } });
       await lifecycle.ensureMonth('2026-08');
-      expect((await lines('2026-08')).get(groceries)?.fund).toBe(false);
+      expect((await lines('2026-08')).get(groceries)?.type).toBe('standard');
     });
   });
 
@@ -259,7 +293,7 @@ describe('BudgetLifecycleService', () => {
 
     it('releases a fund balance when the category becomes regular', async () => {
       await lifecycle.close('2026-08'); // groceries carries 50_000 into September
-      await prisma.$transaction((tx) => lifecycle.applyFundToOpenMonths(tx, groceries, false));
+      await prisma.$transaction((tx) => lifecycle.applyTypeToOpenMonths(tx, groceries, 'standard', 50_000));
       await spend('2026-09-03', groceries, 10_000);
       await lifecycle.close('2026-09');
 
@@ -467,26 +501,164 @@ describe('BudgetLifecycleService', () => {
     });
   });
 
-  describe('other rules', () => {
-    it('applies a fund change to open months only', async () => {
-      await lifecycle.close('2026-08');
-      await prisma.$transaction((tx) => lifecycle.applyFundToOpenMonths(tx, groceries, false));
+  describe('recurring bills', () => {
+    let insurance: number;
 
-      expect((await lines('2026-08')).get(groceries)?.fund).toBe(true);
-      expect((await lines('2026-09')).get(groceries)?.fund).toBe(false);
+    /** Makes a recurring category in Housing. */
+    const recurring = async (billCents: number, billMonths: number, nextDueMonth: string) => {
+      const housing = await prisma.group.findFirstOrThrow({ where: { name: 'Housing' } });
+      const category = await prisma.category.create({
+        data: { groupId: housing.id, name: 'Insurance', type: 'recurring', billCents, billMonths, nextDueMonth, sortOrder: 1 },
+      });
+      insurance = category.id;
+      await prisma.$transaction((tx) => lifecycle.syncRecurringLines(tx));
+      return category;
+    };
+    const line = async (month: string) => (await lines(month)).get(insurance)!;
+    const nextDue = async () => (await prisma.category.findUniqueOrThrow({ where: { id: insurance } })).nextDueMonth;
+    /** Net effect of the bill's savings entries. */
+    const billSavings = async () =>
+      (await prisma.savingsEntry.findMany({ where: { categoryId: insurance } })).reduce((sum, e) => sum + e.amountCents, 0);
+
+    it('stores an even share each month and pays the bill from it', async () => {
+      await recurring(20_000, 4, '2026-12');
+      for (const month of ['2026-09', '2026-10', '2026-11', '2026-12']) await lifecycle.ensureMonth(month);
+      for (const month of ['2026-09', '2026-10', '2026-11', '2026-12']) {
+        expect(await line(month)).toMatchObject({ type: 'recurring', limitCents: 5_000, dueMonth: '2026-12', billCents: 20_000 });
+      }
+
+      for (const month of ['2026-09', '2026-10', '2026-11']) await lifecycle.close(month);
+      expect(await line('2026-12')).toMatchObject({ carryInCents: 15_000, limitCents: 5_000 });
+      expect(await entries('2026-09')).toContainEqual({ kind: 'recurring_store', categoryId: insurance, amountCents: -5_000 });
+      expect(await billSavings()).toBe(-15_000);
+
+      await spend('2026-12-10', insurance, 19_500);
+      await lifecycle.close('2026-12');
+      expect((await entries('2026-12')).filter((e) => e.categoryId === insurance)).toEqual([
+        { kind: 'recurring_store', categoryId: insurance, amountCents: -5_000 },
+        { kind: 'recurring_release', categoryId: insurance, amountCents: 500 },
+      ]);
+      // The bill cost 19_500 in all; savings is down by exactly that.
+      expect(await billSavings()).toBe(-19_500);
+      expect(await nextDue()).toBe('2027-04');
+      expect(await line('2027-01')).toMatchObject({ carryInCents: 0, limitCents: 5_000, dueMonth: '2027-04' });
+    });
+
+    it('splits an uneven bill with the extra cent first', async () => {
+      await recurring(38_733, 2, '2026-11');
+      await lifecycle.ensureMonth('2026-10');
+      await lifecycle.ensureMonth('2026-11');
+      expect((await line('2026-10')).limitCents).toBe(19_367);
+      expect((await line('2026-11')).limitCents).toBe(19_366);
+      await lifecycle.close('2026-10');
+      expect(await line('2026-11')).toMatchObject({ carryInCents: 19_367, limitCents: 19_366 });
+    });
+
+    it('spreads the whole bill over the months left when starting mid-cycle', async () => {
+      await recurring(20_000, 4, '2026-10');
+      await lifecycle.ensureMonth('2026-09');
+      await lifecycle.ensureMonth('2026-10');
+      expect((await line('2026-09')).limitCents).toBe(10_000);
+      expect((await line('2026-10')).limitCents).toBe(10_000);
+    });
+
+    it('re-spreads what is still needed when the bill changes', async () => {
+      await recurring(20_000, 4, '2026-12');
+      for (const month of ['2026-09', '2026-10', '2026-11', '2026-12']) await lifecycle.ensureMonth(month);
+      await lifecycle.close('2026-09');
+      await lifecycle.close('2026-10'); // 10_000 stored
+      await prisma.category.update({ where: { id: insurance }, data: { billCents: 24_000 } });
+      await prisma.$transaction((tx) => lifecycle.syncRecurringLines(tx, insurance));
+      expect((await line('2026-11')).limitCents).toBe(7_000);
+      expect((await line('2026-12')).limitCents).toBe(7_000);
+    });
+
+    it('holds the stored money past the due month until the payment is recorded', async () => {
+      await recurring(10_000, 2, '2026-10');
+      for (const month of ['2026-09', '2026-10', '2026-11']) await lifecycle.ensureMonth(month);
+      await lifecycle.close('2026-09');
+      await lifecycle.close('2026-10');
+      expect(await nextDue()).toBe('2026-10');
+      expect(await line('2026-11')).toMatchObject({ carryInCents: 10_000, limitCents: 0, dueMonth: '2026-10' });
+
+      await spend('2026-11-03', insurance, 9_000);
+      await lifecycle.close('2026-11');
+      expect(await entries('2026-11')).toContainEqual({ kind: 'recurring_release', categoryId: insurance, amountCents: 1_000 });
+      // The next cycle keeps its schedule (due December), so December stores the whole bill.
+      expect(await nextDue()).toBe('2026-12');
+      expect(await line('2026-12')).toMatchObject({ carryInCents: 0, limitCents: 10_000, dueMonth: '2026-12' });
+    });
+
+    it('starts the next cycle in later open months as soon as a payment is recorded', async () => {
+      await recurring(20_000, 2, '2026-09');
+      for (const month of ['2026-09', '2026-10', '2026-11']) await lifecycle.ensureMonth(month);
+      expect((await line('2026-10')).limitCents).toBe(0); // overdue in the projection
+      await spend('2026-09-20', insurance, 20_000);
+      await prisma.$transaction((tx) => lifecycle.syncRecurringLines(tx, insurance));
+      expect(await line('2026-10')).toMatchObject({ dueMonth: '2026-11', limitCents: 10_000 });
+      expect(await line('2026-11')).toMatchObject({ dueMonth: '2026-11', limitCents: 10_000 });
+    });
+
+    it('reopening puts the bill back on its cycle and undoes the settlement', async () => {
+      await recurring(10_000, 2, '2026-09');
+      await lifecycle.ensureMonth('2026-09');
+      await spend('2026-09-15', insurance, 10_000);
+      await lifecycle.close('2026-09');
+      expect(await nextDue()).toBe('2026-11');
+
+      await lifecycle.reopen('2026-09');
+      expect(await nextDue()).toBe('2026-09');
+      expect(await entries('2026-09')).toEqual([]);
+      // September's payment is still recorded, so October is projected onto the next cycle.
+      expect(await line('2026-10')).toMatchObject({ carryInCents: 0, dueMonth: '2026-11' });
+    });
+
+    it('releases the stored money when the category becomes standard', async () => {
+      await recurring(20_000, 4, '2026-12');
+      await lifecycle.ensureMonth('2026-09');
+      await lifecycle.close('2026-09'); // 5_000 stored
+      await prisma.category.update({ where: { id: insurance }, data: { type: 'standard' } });
+      await prisma.$transaction((tx) => lifecycle.applyTypeToOpenMonths(tx, insurance, 'standard', 0));
+      expect(await line('2026-10')).toMatchObject({ type: 'standard', limitCents: 0, dueMonth: null, carryInCents: 5_000 });
+
+      await lifecycle.close('2026-10');
+      expect(await entries('2026-10')).toContainEqual({ kind: 'recurring_release', categoryId: insurance, amountCents: 5_000 });
+      expect(await billSavings()).toBe(0);
+    });
+
+    it('keeps savings + funds + stored money equal to total income − total spending', async () => {
+      await recurring(30_000, 3, '2026-10');
+      await lifecycle.ensureMonth('2026-08');
+      await earn('2026-08-01', 300_000);
+      await spend('2026-08-02', rent, 100_000);
+      await spend('2026-09-04', groceries, 60_000);
+      await spend('2026-10-09', insurance, 31_000);
+      await spend('2026-10-11', dining, 5_000);
+      for (const month of ['2026-08', '2026-09', '2026-10']) await lifecycle.close(month);
+      expect(await totalHeld('2026-11')).toBe(300_000 - 100_000 - 60_000 - 31_000 - 5_000);
+    });
+  });
+
+  describe('other rules', () => {
+    it('applies a type change to open months only', async () => {
+      await lifecycle.close('2026-08');
+      await prisma.$transaction((tx) => lifecycle.applyTypeToOpenMonths(tx, groceries, 'standard', 50_000));
+
+      expect((await lines('2026-08')).get(groceries)?.type).toBe('fund');
+      expect((await lines('2026-09')).get(groceries)?.type).toBe('standard');
     });
 
     it('adds a line for a new category to every open month', async () => {
       await lifecycle.close('2026-08');
       await lifecycle.ensureMonth('2026-10');
       const snacks = await prisma.category.create({
-        data: { groupId: foodId, name: 'Snacks', defaultLimitCents: 2_500, fund: true },
+        data: { groupId: foodId, name: 'Snacks', defaultLimitCents: 2_500, type: 'fund' },
       });
       await prisma.$transaction((tx) => lifecycle.addLineToOpenMonths(tx, snacks.id));
 
       expect((await lines('2026-08')).has(snacks.id)).toBe(false);
       expect((await lines('2026-09')).get(snacks.id)?.limitCents).toBe(2_500);
-      expect((await lines('2026-10')).get(snacks.id)?.fund).toBe(true);
+      expect((await lines('2026-10')).get(snacks.id)?.type).toBe('fund');
     });
 
     it('assertOpen rejects closed months with MONTH_CLOSED', async () => {

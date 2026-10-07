@@ -1,12 +1,15 @@
 import {
-  type GroupKind,
-  type CreateGroupRequest,
+  type CategoryType,
   type CreateCategoryRequest,
+  type CreateGroupRequest,
+  type GroupKind,
+  MAX_BILL_MONTHS,
   MAX_CENTS,
-  type UpdateGroupRequest,
   type UpdateCategoryRequest,
+  type UpdateGroupRequest,
 } from '@stabilitea/shared';
 import { Transform } from 'class-transformer';
+import { IsMonthKey } from '../common/validators.js';
 import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
@@ -54,8 +57,24 @@ export class CreateCategoryDto implements CreateCategoryRequest {
   defaultLimitCents?: number;
 
   @IsOptional()
-  @IsBoolean()
-  fund?: boolean;
+  @IsIn(['standard', 'fund', 'recurring'], { message: 'Type must be standard, fund or recurring' })
+  type?: CategoryType;
+
+  @IsOptional()
+  @IsInt({ message: 'Bill amount must be a whole number of cents' })
+  @Min(1, { message: 'Bill amount must be greater than 0' })
+  @Max(MAX_CENTS)
+  billCents?: number;
+
+  @IsOptional()
+  @IsInt({ message: 'Months must be a whole number' })
+  @Min(1, { message: 'Months must be at least 1' })
+  @Max(MAX_BILL_MONTHS, { message: `Months must be ${MAX_BILL_MONTHS} or fewer` })
+  billMonths?: number;
+
+  @IsOptional()
+  @IsMonthKey({ message: 'Next due month must be a valid month' })
+  nextDueMonth?: string;
 }
 
 export class UpdateCategoryDto implements UpdateCategoryRequest {
@@ -78,8 +97,24 @@ export class UpdateCategoryDto implements UpdateCategoryRequest {
   defaultLimitCents?: number;
 
   @IsOptional()
-  @IsBoolean()
-  fund?: boolean;
+  @IsIn(['standard', 'fund', 'recurring'], { message: 'Type must be standard, fund or recurring' })
+  type?: CategoryType;
+
+  @IsOptional()
+  @IsInt({ message: 'Bill amount must be a whole number of cents' })
+  @Min(1, { message: 'Bill amount must be greater than 0' })
+  @Max(MAX_CENTS)
+  billCents?: number;
+
+  @IsOptional()
+  @IsInt({ message: 'Months must be a whole number' })
+  @Min(1, { message: 'Months must be at least 1' })
+  @Max(MAX_BILL_MONTHS, { message: `Months must be ${MAX_BILL_MONTHS} or fewer` })
+  billMonths?: number;
+
+  @IsOptional()
+  @IsMonthKey({ message: 'Next due month must be a valid month' })
+  nextDueMonth?: string;
 
   @IsOptional()
   @IsInt()

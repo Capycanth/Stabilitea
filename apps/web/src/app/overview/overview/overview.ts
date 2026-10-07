@@ -48,7 +48,7 @@ export class Overview {
     const month = this.month();
     const ok = await this.dialog().ask({
       title: `Close ${monthLabel(month)}?`,
-      message: `Closing adds this month's income to savings and takes out regular spending and fund contributions. Each fund's balance carries into ${monthLabel(addMonths(month, 1))}, even if it's negative. You can reopen it later to make corrections.`,
+      message: `Closing adds this month's income to savings and takes out standard spending, fund contributions and recurring shares. Fund balances and money stored for unpaid bills carry into ${monthLabel(addMonths(month, 1))}. You can reopen it later to make corrections.`,
       confirmLabel: `Close ${monthName(month)}`,
     });
     if (!ok) return;

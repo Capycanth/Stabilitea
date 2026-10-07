@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { addMonths, type BudgetGroup, type BudgetMonthDto } from '@stabilitea/shared';
-import { notFound } from '../common/errors.js';
+import { addMonths, type BudgetGroup, type BudgetMonthDto, type CategoryType } from '@stabilitea/shared';
+import { conflict, notFound } from '../common/errors.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { BudgetLifecycleService, DEFICIT_PAYMENT, lineAvailable } from './budget-lifecycle.service.js';
+import { BudgetLifecycleService, DEFICIT_PAYMENT, lineAvailable, RECURRING, recurringInfo } from './budget-lifecycle.service.js';
 
 @Injectable()
 export class BudgetsService {
@@ -54,7 +54,8 @@ export class BudgetsService {
           carryInCents: line.carryInCents,
           deficitPaidCents: line.deficitPaidCents,
           availableCents,
-          fund: line.fund,
+          type: line.type as CategoryType,
+          recurring: recurringInfo(line, spentCents),
           spentCents,
           remainingCents: availableCents - spentCents,
         });
@@ -99,6 +100,9 @@ export class BudgetsService {
       const line = await tx.budgetLine.findUnique({ where: { id: lineId } });
       if (!line || line.month !== month) throw notFound(`Budget line ${lineId} not found in ${month}`);
       await this.lifecycle.assertOpen(tx, month);
+      if (line.type === RECURRING) {
+        throw conflict("A recurring bill's monthly share is calculated from the bill. Change the bill on the Categories page.");
+      }
       await tx.budgetLine.update({ where: { id: lineId }, data: { limitCents } });
     });
     return this.get(month);

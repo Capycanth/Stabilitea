@@ -10,9 +10,13 @@ Angular best-practices file; follow it for everything under `apps/web`).
 - `apps/api` — NestJS 12 (ESM) + Prisma 7 (`prisma-client` generator, better-sqlite3 adapter) + SQLite.
   - Month rules (auto-copy, close, reopen, deficit payments) live only in
     `src/budgets/budget-lifecycle.service.ts`; the close math is the pure `planClose()` there. Covered by its spec.
-  - Savings model: closing writes `income` (+), `spending` (− regular categories), `fund_contribution`
-    (− fund limits) and `fund_release` entries; funds (`category.fund`) carry their balance, positive or
-    negative, into next month. Invariant: savings + fund balances = total income − total spending.
+  - Naming: **groups** (table `category_group`) hold **categories**; categories hold limits and transactions.
+  - Savings model: closing writes `income` (+), `spending` (− standard categories), `fund_contribution`
+    (− fund limits), `fund_release`, `recurring_store` (− recurring shares) and `recurring_release` entries.
+    `category.type` is `standard | fund | recurring`. Funds carry their balance, positive or negative, into
+    next month. Recurring lines get calculated shares from `syncRecurringLines()` (pure math in
+    `packages/shared/src/recurring.ts`); a payment settles at close and moves `next_due_month` on a cycle.
+    Invariant: savings + fund balances + stored bill money = total income − total spending.
   - The yearly Excel report is `src/reports/` (`year-report.ts` gathers data, `year-workbook.ts` renders with exceljs).
   - Every error leaving `/api` is an `ApiErrorBody` (`VALIDATION_FAILED` with `fieldErrors`, `MONTH_CLOSED`, `NOT_FOUND`, `CONFLICT`).
 - `apps/web` — Angular 22.1: standalone, zoneless, OnPush by default, Signal Forms, `httpResource()`, `@angular/aria`.

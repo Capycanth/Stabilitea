@@ -47,8 +47,8 @@ describe('Stabilitea API (e2e)', () => {
     it('lists seeded groups with nested categories in order', () => {
       expect(groups.map((c) => c.name)).toEqual(['Income', 'Housing', 'Food', 'Transportation', 'Personal']);
       expect(groups.find((c) => c.name === 'Food')).toMatchObject({ kind: 'expense' });
-      expect(category('Housing', 'Internet')).toMatchObject({ defaultLimitCents: 7_000, fund: false, archivedAt: null });
-      expect(category('Transportation', 'Maintenance')).toMatchObject({ fund: true });
+      expect(category('Housing', 'Internet')).toMatchObject({ defaultLimitCents: 7_000, type: 'standard', archivedAt: null });
+      expect(category('Transportation', 'Maintenance')).toMatchObject({ type: 'fund' });
     });
 
     it('creates, renames, reorders and archives', async () => {
@@ -74,11 +74,11 @@ describe('Stabilitea API (e2e)', () => {
     it('creates categories and adds them to open budgets', async () => {
       const food = groups.find((c) => c.name === 'Food')!;
       await http().get('/api/budgets/2026-09').expect(200);
-      const snack = (await http().post(`/api/groups/${food.id}/categories`).send({ name: 'Snacks', defaultLimitCents: 2_000, fund: true }).expect(201)).body;
-      expect(snack).toMatchObject({ fund: true });
+      const snack = (await http().post(`/api/groups/${food.id}/categories`).send({ name: 'Snacks', defaultLimitCents: 2_000, type: 'fund' }).expect(201)).body;
+      expect(snack).toMatchObject({ type: 'fund' });
       const budget: BudgetMonthDto = (await http().get('/api/budgets/2026-09').expect(200)).body;
       const line = budget.groups.flatMap((g) => g.lines).find((l) => l.categoryId === snack.id);
-      expect(line).toMatchObject({ limitCents: 2_000, carryInCents: 0, fund: true });
+      expect(line).toMatchObject({ limitCents: 2_000, carryInCents: 0, type: 'fund' });
     });
 
     it('rejects moving a category across kinds', async () => {
@@ -89,20 +89,20 @@ describe('Stabilitea API (e2e)', () => {
 
     it('updates open lines when a category becomes a fund', async () => {
       await http().post('/api/budgets/2026-08/close').expect(200);
-      const updated = (await http().patch(`/api/categories/${category('Food', 'Groceries').id}`).send({ fund: true }).expect(200)).body;
-      expect(updated).toMatchObject({ fund: true });
+      const updated = (await http().patch(`/api/categories/${category('Food', 'Groceries').id}`).send({ type: 'fund' }).expect(200)).body;
+      expect(updated).toMatchObject({ type: 'fund' });
       const aug: BudgetMonthDto = (await http().get('/api/budgets/2026-08')).body;
       const sep: BudgetMonthDto = (await http().get('/api/budgets/2026-09')).body;
       const groceriesLine = (b: BudgetMonthDto) => b.groups.flatMap((g) => g.lines).find((l) => l.categoryName === 'Groceries')!;
-      expect(groceriesLine(aug).fund).toBe(false);
-      expect(groceriesLine(sep).fund).toBe(true);
+      expect(groceriesLine(aug).type).toBe('standard');
+      expect(groceriesLine(sep).type).toBe('fund');
     });
 
-    it('only lets expense categories be funds', async () => {
-      const res = await http().patch(`/api/categories/${category('Income', 'Salary').id}`).send({ fund: true }).expect(400);
-      expect(res.body.fieldErrors).toHaveProperty('fund');
+    it('only lets expense categories be funds or recurring', async () => {
+      const res = await http().patch(`/api/categories/${category('Income', 'Salary').id}`).send({ type: 'fund' }).expect(400);
+      expect(res.body.fieldErrors).toHaveProperty('type');
       const income = groups.find((c) => c.name === 'Income')!;
-      await http().post(`/api/groups/${income.id}/categories`).send({ name: 'Bonus', fund: true }).expect(400);
+      await http().post(`/api/groups/${income.id}/categories`).send({ name: 'Bonus', type: 'recurring', billCents: 100, billMonths: 2, nextDueMonth: '2026-12' }).expect(400);
     });
   });
 
@@ -213,7 +213,7 @@ describe('Stabilitea API (e2e)', () => {
       expect(summary).toMatchObject({ fundContributionCents: 7_500, savingsChangeCents: 437_500 });
       const food = summary.groups.find((c) => c.name === 'Food')!;
       expect(food).toMatchObject({ limitCents: 70_000, availableCents: 70_000, spentCents: 55_000 });
-      expect(food.categories.find((s) => s.name === 'Dining Out')).toMatchObject({ fund: false, remainingCents: -5_000 });
+      expect(food.categories.find((s) => s.name === 'Dining Out')).toMatchObject({ type: 'standard', remainingCents: -5_000 });
       expect(summary.groups.some((c) => c.name === 'Income')).toBe(false);
     });
 
@@ -245,6 +245,8 @@ describe('Stabilitea API (e2e)', () => {
           spendingCents: 140_000,
           fundContributionCents: 7_500,
           fundReleaseCents: 0,
+          recurringStoredCents: 0,
+          recurringReleaseCents: 0,
           deficitPaidCents: 0,
           changeCents: 352_500,
           balanceAfterCents: 352_500,
@@ -272,7 +274,7 @@ describe('Stabilitea API (e2e)', () => {
       let budget: BudgetMonthDto = (await http().get('/api/budgets/2026-09').expect(200)).body;
       const findLine = (b: BudgetMonthDto, name: string) => b.groups.flatMap((g) => g.lines).find((l) => l.categoryName === name)!;
       let maintenance = findLine(budget, 'Maintenance');
-      expect(maintenance).toMatchObject({ fund: true, carryInCents: -12_500, availableCents: -5_000, remainingCents: -6_000, deficitPaidCents: 0 });
+      expect(maintenance).toMatchObject({ type: 'fund', carryInCents: -12_500, availableCents: -5_000, remainingCents: -6_000, deficitPaidCents: 0 });
       expect(budget.savingsBalanceCents).toBe(92_500);
 
       // Regular lines have nothing to pay down.
@@ -297,6 +299,67 @@ describe('Stabilitea API (e2e)', () => {
 
       const undone: BudgetMonthDto = (await http().delete(`/api/budgets/2026-09/deficit-payments/${budget.deficitPayments[0]!.id}`).expect(200)).body;
       expect(undone).toMatchObject({ savingsBalanceCents: 92_500, deficitPaidCents: 0, deficitPayments: [] });
+    });
+
+    it('creates a recurring category, stores shares, pays the bill and settles with savings', async () => {
+      const housing = groups.find((g) => g.name === 'Housing')!;
+      const missing = await http().post(`/api/groups/${housing.id}/categories`).send({ name: 'Insurance', type: 'recurring' }).expect(400);
+      expect(Object.keys(missing.body.fieldErrors).sort()).toEqual(['billCents', 'billMonths', 'nextDueMonth']);
+      await http()
+        .post(`/api/groups/${housing.id}/categories`)
+        .send({ name: 'Insurance', type: 'recurring', billCents: 38_733, billMonths: 2, nextDueMonth: '2026-13' })
+        .expect(400);
+
+      const insurance = (
+        await http()
+          .post(`/api/groups/${housing.id}/categories`)
+          .send({ name: 'Insurance', type: 'recurring', billCents: 38_733, billMonths: 2, nextDueMonth: '2026-09' })
+          .expect(201)
+      ).body;
+      expect(insurance).toMatchObject({ type: 'recurring', billCents: 38_733, billMonths: 2, nextDueMonth: '2026-09' });
+
+      const august: BudgetMonthDto = (await http().get('/api/budgets/2026-08').expect(200)).body;
+      await http().get('/api/budgets/2026-09').expect(200);
+      const lineIn = (b: BudgetMonthDto) => b.groups.flatMap((g) => g.lines).find((l) => l.categoryId === insurance.id)!;
+      expect(lineIn(august)).toMatchObject({
+        type: 'recurring',
+        limitCents: 19_367,
+        recurring: { billCents: 38_733, billMonths: 2, dueMonth: '2026-09', status: 'saving' },
+      });
+      const editShare = await http().patch(`/api/budgets/2026-08/lines/${lineIn(august).id}`).send({ limitCents: 1 }).expect(409);
+      expect(editShare.body.message).toMatch(/calculated/);
+
+      const augSummary: MonthSummary = (await http().get('/api/summary/2026-08').expect(200)).body;
+      expect(augSummary.recurringStoredCents).toBe(19_367);
+      await http().post('/api/budgets/2026-08/close').expect(200);
+
+      await post('2026-09-12', insurance.id, 40_000);
+      const september: BudgetMonthDto = (await http().get('/api/budgets/2026-09').expect(200)).body;
+      expect(lineIn(september)).toMatchObject({
+        limitCents: 19_366,
+        carryInCents: 19_367,
+        spentCents: 40_000,
+        remainingCents: -1_267,
+        recurring: { status: 'paid' },
+      });
+      await http().post('/api/budgets/2026-09/close').expect(200);
+
+      const savings: SavingsDto = (await http().get('/api/savings').expect(200)).body;
+      const sep = savings.months.find((m) => m.month === '2026-09')!;
+      expect(sep).toMatchObject({ recurringStoredCents: 19_366, recurringReleaseCents: -1_267 });
+      expect(savings.recurring).toEqual([
+        {
+          categoryId: insurance.id,
+          categoryName: 'Insurance',
+          groupName: 'Housing',
+          billCents: 38_733,
+          billMonths: 2,
+          dueMonth: '2026-11',
+          storedCents: 0,
+        },
+      ]);
+      const updated = (await http().get('/api/groups').expect(200)).body as GroupDto[];
+      expect(updated.find((g) => g.id === housing.id)!.categories.find((c) => c.id === insurance.id)).toMatchObject({ nextDueMonth: '2026-11' });
     });
 
     it('downloads a yearly Excel report with summary, monthly and budget sheets', async () => {
@@ -347,22 +410,22 @@ describe('Stabilitea API (e2e)', () => {
       const monthly = workbook.getWorksheet('Monthly')!;
       const rowFor = (label: string) => monthly.getRows(1, monthly.rowCount)!.find((r) => r.getCell(1).value === label)!;
       expect([2, 3, 4, 5].map((i) => rowFor('August 2026').getCell(i).value)).toEqual(['Closed', 5000, 200, 4800]);
-      expect([2, 10, 11, 12].map((i) => rowFor('September 2026').getCell(i).value)).toEqual(['Open', 60, -60, 4865]);
+      expect([2, 12, 13, 14].map((i) => rowFor('September 2026').getCell(i).value)).toEqual(['Open', 60, -60, 4865]);
 
       const detail = workbook.getWorksheet('Budget vs actual')!;
       const detailRow = (month: string, name: string) =>
         detail.getRows(1, detail.rowCount)!.find((r) => r.getCell(1).value === month && r.getCell(3).value === name)!;
       const maintSept = detailRow('September 2026', 'Maintenance');
-      expect([4, 5, 6, 7, 8, 9, 10].map((i) => maintSept.getCell(i).value)).toEqual(['Fund', 75, -125, 60, 10, 10, 0]);
-      expect(detailRow('August 2026', 'Maintenance').getCell(11).value).toBe('Fund deficit carried');
-      expect(detailRow('August 2026', 'Rent/Mortgage').getCell(11).value).toBe('Spent from savings');
+      expect([4, 5, 6, 7, 8, 9, 10, 11].map((i) => maintSept.getCell(i).value)).toEqual(['Fund', '', 75, -125, 60, 10, 10, 0]);
+      expect(detailRow('August 2026', 'Maintenance').getCell(12).value).toBe('Fund deficit carried');
+      expect(detailRow('August 2026', 'Rent/Mortgage').getCell(12).value).toBe('Spent from savings');
     });
 
     it('exports every table', async () => {
       await http().get('/api/budgets/2026-09').expect(200);
       const res = await http().get('/api/export').expect(200);
       expect(res.headers['content-disposition']).toContain('stabilitea-export.json');
-      expect(res.body).toMatchObject({ app: 'stabilitea', schemaVersion: 2 });
+      expect(res.body).toMatchObject({ app: 'stabilitea', schemaVersion: 3 });
       expect(res.body.groups).toHaveLength(5);
       expect(res.body.budgetLines.length).toBeGreaterThan(0);
     });

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import type { GroupDto, GroupKind, CategoryDto } from '@stabilitea/shared';
+import type { CategoryDto, CategoryType, GroupDto, GroupKind, RecurringBillFields } from '@stabilitea/shared';
 import { BudgetLifecycleService } from '../budgets/budget-lifecycle.service.js';
-import { fieldError, notFound } from '../common/errors.js';
+import { fieldError, notFound, validationError } from '../common/errors.js';
 import type { Group, Category } from '../generated/prisma/client.js';
 import { type Db, PrismaService } from '../prisma/prisma.service.js';
 import type { CreateGroupDto, CreateCategoryDto, UpdateGroupDto, UpdateCategoryDto } from './groups.dto.js';
@@ -19,11 +19,49 @@ function toCategoryDto(category: Category & { _count?: { transactions: number } 
     groupId: category.groupId,
     name: category.name,
     defaultLimitCents: category.defaultLimitCents,
-    fund: category.fund,
+    type: category.type as CategoryType,
+    billCents: category.billCents,
+    billMonths: category.billMonths,
+    nextDueMonth: category.nextDueMonth,
     sortOrder: category.sortOrder,
     archivedAt: category.archivedAt?.toISOString() ?? null,
     transactionCount: category._count?.transactions ?? 0,
   };
+}
+
+interface TypeSettings {
+  type: CategoryType;
+  billCents: number | null;
+  billMonths: number | null;
+  nextDueMonth: string | null;
+}
+
+/**
+ * The type and bill settings a category will have after a create or update, merged with its current settings.
+ * Fund and recurring are expense only; recurring needs all three bill fields.
+ */
+export function resolveTypeSettings(
+  kind: string,
+  current: TypeSettings | null,
+  dto: RecurringBillFields & { type?: CategoryType },
+): TypeSettings {
+  const settings: TypeSettings = {
+    type: dto.type ?? current?.type ?? 'standard',
+    billCents: dto.billCents ?? current?.billCents ?? null,
+    billMonths: dto.billMonths ?? current?.billMonths ?? null,
+    nextDueMonth: dto.nextDueMonth ?? current?.nextDueMonth ?? null,
+  };
+  if (settings.type !== 'standard' && kind !== 'expense') {
+    throw fieldError('type', 'Only expense categories can be funds or recurring');
+  }
+  if (settings.type === 'recurring') {
+    const errors: Record<string, string[]> = {};
+    if (settings.billCents === null) errors['billCents'] = ['Bill amount is required for a recurring category'];
+    if (settings.billMonths === null) errors['billMonths'] = ['Months are required for a recurring category'];
+    if (settings.nextDueMonth === null) errors['nextDueMonth'] = ['Next due month is required for a recurring category'];
+    if (Object.keys(errors).length) throw validationError(errors, 'Recurring categories need a bill amount, months and a due month');
+  }
+  return settings;
 }
 
 @Injectable()
@@ -97,14 +135,14 @@ export class GroupsService {
       const group = await tx.group.findUnique({ where: { id: groupId } });
       if (!group) throw notFound(`Group ${groupId} not found`);
       await this.assertCategoryNameFree(tx, groupId, dto.name);
-      if (dto.fund && group.kind !== 'expense') throw fieldError('fund', 'Only expense categories can be funds');
+      const settings = resolveTypeSettings(group.kind, null, dto);
       const count = await tx.category.count({ where: { groupId } });
       const category = await tx.category.create({
         data: {
           groupId,
           name: dto.name,
           defaultLimitCents: dto.defaultLimitCents ?? 0,
-          fund: dto.fund ?? false,
+          ...settings,
           sortOrder: count,
         },
       });
@@ -127,9 +165,7 @@ export class GroupsService {
         }
         groupId = found.id;
       }
-      if (dto.fund && current.group.kind !== 'expense') {
-        throw fieldError('fund', 'Only expense categories can be funds');
-      }
+      const settings = resolveTypeSettings(current.group.kind, current as TypeSettings, dto);
 
       const name = dto.name ?? current.name;
       if (name !== current.name || groupId !== current.groupId) {
@@ -142,14 +178,17 @@ export class GroupsService {
           name,
           groupId,
           defaultLimitCents: dto.defaultLimitCents,
-          fund: dto.fund,
+          ...settings,
           sortOrder: groupId !== current.groupId ? await tx.category.count({ where: { groupId } }) : undefined,
           archivedAt: dto.archived === undefined ? undefined : dto.archived ? (current.archivedAt ?? new Date()) : null,
         },
       });
 
-      if (dto.fund !== undefined && dto.fund !== current.fund) {
-        await this.lifecycle.applyFundToOpenMonths(tx, id, dto.fund);
+      if (settings.type !== current.type) {
+        await this.lifecycle.applyTypeToOpenMonths(tx, id, settings.type, dto.defaultLimitCents ?? current.defaultLimitCents);
+      } else if (settings.type === 'recurring') {
+        // Bill changes reshape the shares still to be stored.
+        await this.lifecycle.syncRecurringLines(tx, id);
       }
 
       if (dto.archived === false && current.archivedAt) {

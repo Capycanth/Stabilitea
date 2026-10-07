@@ -6,12 +6,14 @@ import { errorMessage } from '../../shared/api-error';
 import { Icon } from '../../shared/icon/icon';
 import { MoneyInput } from '../../shared/money-input/money-input';
 import { MoneyPipe } from '../../shared/money-pipe';
+import { billText, recurringStatusText } from '../../shared/recurring-text';
+import { TypeChip } from '../../shared/type-chip/type-chip';
 import { BudgetApi } from '../budget-api';
 
 /** One editable budget line. The limit saves when the input loses focus. */
 @Component({
   selector: 'tr[appBudgetLineRow]',
-  imports: [FormField, MoneyInput, MoneyPipe, Icon],
+  imports: [FormField, MoneyInput, MoneyPipe, Icon, TypeChip],
   host: { '[class.over]': 'line().remainingCents < 0' },
   templateUrl: './budget-line-row.html',
   styleUrl: './budget-line-row.scss',
@@ -33,8 +35,13 @@ export class BudgetLineRow {
   protected readonly saveError = signal<string | null>(null);
   /** Only funds carry deficits, so only they can be paid down from savings. */
   protected readonly canPayDeficit = computed(
-    () => !this.readonly() && this.line().fund && this.line().remainingCents < 0 && this.savingsBalanceCents() > 0,
+    () => !this.readonly() && this.line().type === 'fund' && this.line().remainingCents < 0 && this.savingsBalanceCents() > 0,
   );
+  protected readonly billText = billText;
+  protected readonly statusText = computed(() => {
+    const info = this.line().recurring;
+    return info ? recurringStatusText(info) : '';
+  });
   protected readonly inputId = computed(() => `limit-${this.line().id}`);
   protected readonly errorId = computed(() => `limit-${this.line().id}-errors`);
 
@@ -57,7 +64,7 @@ export class BudgetLineRow {
       const limitCents = this.model().limitCents;
       const valid = this.lineForm().valid();
       untracked(() => {
-        if (valid && limitCents !== null && limitCents !== this.line().limitCents && !this.readonly()) {
+        if (valid && limitCents !== null && limitCents !== this.line().limitCents && !this.readonly() && !this.line().recurring) {
           void this.save(limitCents);
         }
       });

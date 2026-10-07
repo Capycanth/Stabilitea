@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { addMonths, type GroupSummary, type MonthSummary } from '@stabilitea/shared';
-import { BudgetLifecycleService, planClose } from '../budgets/budget-lifecycle.service.js';
+import { addMonths, type CategoryType, type GroupSummary, type MonthSummary, type RecurringLineInfo } from '@stabilitea/shared';
+import { BudgetLifecycleService, FUND, planClose, RECURRING, recurringInfo } from '../budgets/budget-lifecycle.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 interface Row {
@@ -10,7 +10,8 @@ interface Row {
   groupId: number;
   groupName: string;
   groupSort: number;
-  fund: boolean;
+  type: CategoryType;
+  recurring: RecurringLineInfo | null;
   limitCents: number;
   carryInCents: number;
   deficitPaidCents: number;
@@ -44,7 +45,8 @@ export class SummaryService {
           groupId: category.group.id,
           groupName: category.group.name,
           groupSort: category.group.sortOrder,
-          fund: line.fund,
+          type: line.type as CategoryType,
+          recurring: recurringInfo(line, spent.get(category.id) ?? 0),
           limitCents: line.limitCents,
           carryInCents: line.carryInCents,
           deficitPaidCents: line.deficitPaidCents,
@@ -64,7 +66,8 @@ export class SummaryService {
             groupId: category.group.id,
             groupName: category.group.name,
             groupSort: category.group.sortOrder,
-            fund: false,
+            type: 'standard',
+            recurring: null,
             limitCents: 0,
             carryInCents: 0,
             deficitPaidCents: 0,
@@ -103,7 +106,8 @@ export class SummaryService {
         group.categories.push({
           id: row.categoryId,
           name: row.categoryName,
-          fund: row.fund,
+          type: row.type,
+          recurring: row.recurring,
           limitCents: row.limitCents,
           carryInCents: row.carryInCents,
           deficitPaidCents: row.deficitPaidCents,
@@ -122,16 +126,15 @@ export class SummaryService {
         const { _sum } = await tx.savingsEntry.aggregate({ where: { month }, _sum: { amountCents: true } });
         savingsChangeCents = _sum.amountCents ?? 0;
       } else {
-        const next = await tx.budgetMonth.findUnique({
-          where: { month: addMonths(month, 1) },
-          include: { lines: { where: { fund: true } } },
-        });
-        const nextFund = new Set(
+        // Next month's line types, or (when it doesn't exist yet) what auto-copy would create.
+        const next = await tx.budgetMonth.findUnique({ where: { month: addMonths(month, 1) }, include: { lines: true } });
+        const nextTypes = new Map(
           next
-            ? next.lines.map((l) => l.categoryId)
-            : budget.lines.filter((l) => l.fund && !l.category.archivedAt).map((l) => l.categoryId),
+            ? next.lines.map((l) => [l.categoryId, l.type])
+            : budget.lines.filter((l) => !l.category.archivedAt).map((l) => [l.categoryId, l.category.type]),
         );
-        const plan = planClose(budget.lines, spent, income, nextFund);
+        const previous = await tx.budgetLine.findMany({ where: { month: addMonths(month, -1) } });
+        const plan = planClose(budget.lines, spent, income, nextTypes, new Map(previous.map((l) => [l.categoryId, l.type])));
         savingsChangeCents = plan.moves.reduce((sum, m) => sum + m.amountCents, 0) - deficitPaidCents;
       }
       return {
@@ -141,7 +144,8 @@ export class SummaryService {
         incomeCents,
         expenseCents,
         netCents: incomeCents - expenseCents,
-        fundContributionCents: budget.lines.filter((l) => l.fund).reduce((sum, l) => sum + l.limitCents, 0),
+        fundContributionCents: budget.lines.filter((l) => l.type === FUND).reduce((sum, l) => sum + l.limitCents, 0),
+        recurringStoredCents: budget.lines.filter((l) => l.type === RECURRING).reduce((sum, l) => sum + l.limitCents, 0),
         deficitPaidCents,
         savingsChangeCents,
         earliestOpenPastMonth: await this.lifecycle.earliestOpenBefore(tx, month),

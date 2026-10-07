@@ -4,6 +4,8 @@ import type { GroupDto, CategoryDto } from '@stabilitea/shared';
 import { errorMessage } from '../../shared/api-error';
 import { Icon } from '../../shared/icon/icon';
 import { MoneyPipe } from '../../shared/money-pipe';
+import { billShortText } from '../../shared/recurring-text';
+import { TypeChip } from '../../shared/type-chip/type-chip';
 import { GroupApi } from '../group-api';
 import { GroupEditor } from '../group-editor/group-editor';
 import { NewGroupForm } from '../new-group-form/new-group-form';
@@ -15,13 +17,14 @@ type Selection =
 
 @Component({
   selector: 'app-group-tree',
-  imports: [Tree, TreeItem, TreeItemGroup, Icon, MoneyPipe, GroupEditor, CategoryEditor, NewGroupForm],
+  imports: [Tree, TreeItem, TreeItemGroup, Icon, MoneyPipe, TypeChip, GroupEditor, CategoryEditor, NewGroupForm],
   templateUrl: './group-tree.html',
   styleUrl: './group-tree.scss',
 })
 export class GroupTree {
   private readonly api = inject(GroupApi);
 
+  protected readonly billShortText = billShortText;
   protected readonly showArchived = signal(false);
   /** Always load archived rows so reorder positions match the server's ordering. */
   protected readonly groups = this.api.groupsResource(() => true);

@@ -25,7 +25,7 @@
         <app-icon name="info" />
         <div class="banner-text">
           <h2 id="close-banner-title">Close {{ monthName(s.month) }} to update savings.</h2>
-          <p>Closing adds its income to savings, takes out regular spending and fund contributions, and carries fund balances into {{ nextMonthLabel() }}.</p>
+          <p>Closing adds its income to savings, takes out standard spending, fund contributions and recurring shares, and carries fund balances and stored bill money into {{ nextMonthLabel() }}.</p>
         </div>
         <button type="button" class="btn btn-primary" [disabled]="closing()" (click)="closeMonth()">
           Close {{ monthName(s.month) }}
@@ -36,7 +36,7 @@
         <app-icon name="info" />
         <div class="banner-text">
           <h2 id="open-banner-title">Close {{ monthName(openMonth) }} to update savings.</h2>
-          <p>{{ monthLabel(openMonth) }} is still open, so its income, spending and fund balances haven't reached savings yet.</p>
+          <p>{{ monthLabel(openMonth) }} is still open, so its income, spending, funds and bills haven't reached savings yet.</p>
         </div>
         <a class="btn" [routerLink]="['/', openMonth]">Go to {{ monthName(openMonth) }}</a>
       </section>
@@ -78,10 +78,10 @@
           {{ s.savingsChangeCents | money }}
         </p>
         <p class="stat-sub muted">
-          @if (s.fundContributionCents > 0) {
-            After <span class="money">{{ s.fundContributionCents | money }}</span> into funds
+          @if (s.fundContributionCents > 0 || s.recurringStoredCents > 0) {
+            After <span class="money">{{ s.fundContributionCents + s.recurringStoredCents | money }}</span> into funds and bills
           } @else {
-            Income minus regular spending
+            Income minus standard spending
           }
         </p>
       </div>

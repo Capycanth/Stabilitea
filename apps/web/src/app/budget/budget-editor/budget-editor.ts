@@ -54,12 +54,12 @@ export class BudgetEditor {
       this.budget.hasValue() &&
       !this.closed() &&
       this.budget.value().savingsBalanceCents > 0 &&
-      this.budget.value().groups.some((g) => g.lines.some((l) => l.fund && l.remainingCents < 0)),
+      this.budget.value().groups.some((g) => g.lines.some((l) => l.type === 'fund' && l.remainingCents < 0)),
   );
 
   protected readonly closeExplanation = computed(
     () =>
-      `Closing adds this month's income to savings and takes out regular spending and fund contributions. Each fund's balance carries into ${this.nextLabel()}, even if it's negative.`,
+      `Closing adds this month's income to savings and takes out standard spending, fund contributions and recurring shares. Each fund's balance and the money stored for each unpaid bill carry into ${this.nextLabel()}; a bill paid this month settles its leftover or shortfall with savings.`,
   );
 
   private readonly incomeModel = linkedSignal({
@@ -135,7 +135,7 @@ export class BudgetEditor {
     const month = this.month();
     const ok = await this.confirm().ask({
       title: `Reopen ${monthLabel(month)}?`,
-      message: `This removes ${monthName(month)}'s income, spending and fund entries from savings and resets ${this.nextLabel()}'s fund balances until you close it again. Deficits already paid from savings stay recorded.`,
+      message: `This removes ${monthName(month)}'s income, spending, fund and recurring entries from savings and resets ${this.nextLabel()}'s fund balances and stored money until you close it again. Deficits already paid from savings stay recorded.`,
       confirmLabel: `Reopen ${monthName(month)}`,
     });
     if (ok) await this.run(() => this.api.reopen(month), `${monthLabel(month)} reopened.`);

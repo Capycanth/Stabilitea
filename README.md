@@ -1,8 +1,10 @@
 # Stabilitea
 
 A calm, local-only personal budget. Record income and expenses by month, set limits on
-categories, see budget vs. actual, and close each month to settle it into savings. Any
-category can be a **fund** that keeps its own balance from month to month.
+categories (organized into groups), see budget vs. actual, and close each month to settle it into
+savings. Each expense category has a type: **Standard** (spending comes out of savings), **Fund** (keeps
+its own balance from month to month) or **Recurring** (stores an even share of a bill every month, then
+pays the bill from what's stored).
 
 Everything runs on your machine: an Angular 22 app, a NestJS API bound to `127.0.0.1`,
 and one SQLite file at `data/stabilitea.db`.
@@ -42,9 +44,9 @@ You can also download a full JSON export from **Download backup** in the sidebar
 
 | Sheet | Contents |
 | --- | --- |
-| Summary | Income and expenses side by side, net, planned income, budgeted, moved into and released from funds, fund deficits paid, savings on Jan 1, change in savings, savings at year end, months closed, and spending by group |
-| Monthly | One row per month: status, income, expenses, net, planned income, budgeted, fund contributions and releases, fund deficits paid, change in savings, savings balance at month end |
-| Budget vs actual | Every category for every month: regular or fund, limit, fund balance in, paid from savings, available, spent, remaining, and what happened at close |
+| Summary | Income and expenses side by side, net, planned income, budgeted, moved into and released from funds, stored for and settled from recurring bills, fund deficits paid, savings on Jan 1, change in savings, savings at year end, months closed, and spending by group |
+| Monthly | One row per month: status, income, expenses, net, planned income, budgeted, fund contributions and releases, stored for recurring bills, recurring settlements, fund deficits paid, change in savings, savings balance at month end |
+| Budget vs actual | Every category for every month: standard, fund or recurring, bill due, limit or share, balance in, paid from savings, available, spent, remaining, and what happened at close |
 
 Rows where a deficit was paid from savings are highlighted. The report is read-only and never creates budget months.
 
@@ -66,22 +68,32 @@ docs/         angular-best-practices.md
 
 - **First visit creates the month** by copying the most recent earlier month's limits and planned
   income (or each category's default limit when there is none). Archived categories are skipped.
-- **Savings is the money not committed to a fund.** Closing a month writes its savings entries:
-  `income` (+ each income category), `spending` (− each regular category's spending) and
-  `fund_contribution` (− each fund's limit). So savings changes by **income − regular spending − fund
-  contributions**, and it can go negative. A regular category's limit is a target: underspending simply
+- **Savings is the money not committed to a fund or a bill.** Closing a month writes its savings entries:
+  `income` (+ each income category), `spending` (− each standard category's spending),
+  `fund_contribution` (− each fund's limit) and `recurring_store` (− each recurring bill's share). So
+  savings changes by **income − standard spending − fund contributions − recurring shares** (plus releases),
+  and it can go negative. A regular category's limit is a target: underspending simply
   leaves more in savings, overspending leaves less.
 - **Funds** (a per-category flag, expense only) keep their own balance: `limit + balance in + paid from
   savings − spent`. At close that balance, positive or negative, becomes next month's carry-in ("Balance
   in"). If next month has no fund line for it (archived, or switched to regular), the balance goes back to
   savings as a `fund_release` entry, so savings + all fund balances always equals total income − total spending.
+- **Recurring bills** (expense only) have a bill amount, a number of months, and a next due month. Each
+  month's share is what's still needed (bill − stored) split over the months left through the due month,
+  rounded up, so leftover cents land in the earliest months and the shares add up to the bill exactly
+  ($387.33 over 2 months is $193.67 then $193.66). Starting mid-cycle or changing the bill re-spreads what's
+  still needed over the months left. Shares are calculated, not editable. Any spending in the category is the
+  bill payment: it comes out of the stored money, and at close the leftover (+) or shortfall (−) settles with
+  savings as a `recurring_release`, and the due month moves on one cycle. If the due month closes with no
+  payment, the stored money is held (no more shares) until the payment is recorded. Savings + fund balances +
+  stored bill money always equals total income − total spending.
 - **Pay deficit from savings:** on an open month, a fund whose remaining balance is below $0 shows **Pay
   from savings**. It moves the whole deficit out of savings, or the whole positive balance if savings is
   smaller. Each payment is stored on the budget line (`deficit_paid_cents`) and as a negative
   `deficit_payment` savings entry, listed on the Budget page (with Undo while the month is open), on the
   Savings page, and in the yearly report.
-- **Switching** a category between regular and fund applies to open months only; closed months keep
-  their snapshot.
+- **Changing a category's type** applies to open months only; closed months keep their snapshot. Money a
+  fund or bill was holding is released to savings at the next close unless the new type keeps a balance.
 - **Reopening** removes that month's close entries and resets next month's carry-ins; deficit payments stay
   recorded. Months reopen newest-first, and a closed month rejects transaction and budget edits with
   `409 MONTH_CLOSED`.

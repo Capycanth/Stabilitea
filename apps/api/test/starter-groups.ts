@@ -32,11 +32,11 @@ export async function seedStarterGroups(prisma: Pick<PrismaClient, 'group'>): Pr
         kind: group.kind,
         sortOrder: index,
         categories: {
-          create: group.categories.map(([name, defaultLimitCents, fund], subIndex) => ({
+          create: group.categories.map(([name, defaultLimitCents, fund], categoryIndex) => ({
             name,
             defaultLimitCents,
-            fund: fund ?? false,
-            sortOrder: subIndex,
+            type: fund ? 'fund' : 'standard',
+            sortOrder: categoryIndex,
           })),
         },
       },

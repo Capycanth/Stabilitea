@@ -1,0 +1,55 @@
+<div class="field type">
+  <label [for]="idPrefix() + '-type'">Category type</label>
+  <select [id]="idPrefix() + '-type'" class="input" [formField]="fields().type" [attr.aria-describedby]="idPrefix() + '-type-hint'">
+    <option value="standard">Standard</option>
+    <option value="fund">Fund</option>
+    <option value="recurring">Recurring</option>
+  </select>
+  <p [id]="idPrefix() + '-type-hint'" class="hint">{{ hint() }}</p>
+</div>
+
+@if (isRecurring()) {
+  <fieldset class="bill">
+    <legend>Recurring bill</legend>
+    <div class="bill-fields">
+      <div class="field">
+        <label [for]="idPrefix() + '-bill'">Bill amount</label>
+        <app-money-input [inputId]="idPrefix() + '-bill'" [describedBy]="idPrefix() + '-bill-errors'" [formField]="fields().billCents" />
+      </div>
+      <div class="field months">
+        <label [for]="idPrefix() + '-months'">Every (months)</label>
+        <input
+          [id]="idPrefix() + '-months'"
+          class="input"
+          type="number"
+          inputmode="numeric"
+          step="1"
+          [formField]="fields().billMonths"
+          [attr.aria-describedby]="idPrefix() + '-bill-errors'"
+        />
+      </div>
+      <div class="field">
+        <label [for]="idPrefix() + '-due'">Next due</label>
+        <input
+          [id]="idPrefix() + '-due'"
+          class="input"
+          type="month"
+          [formField]="fields().nextDueMonth"
+          [attr.aria-describedby]="idPrefix() + '-bill-errors'"
+        />
+      </div>
+    </div>
+    @if (preview(); as p) {
+      <p class="hint" aria-live="polite">
+        About <span class="money">{{ p.share | money }}</span> a month, so
+        <span class="money">{{ p.bill | money }}</span> is stored by {{ p.due }}. If fewer months are left before
+        then, the bill is spread over the months that remain.
+      </p>
+    }
+    <div [id]="idPrefix() + '-bill-errors'">
+      @for (error of billErrors(); track $index) {
+        <p class="field-error" role="alert">{{ error }}</p>
+      }
+    </div>
+  </fieldset>
+}

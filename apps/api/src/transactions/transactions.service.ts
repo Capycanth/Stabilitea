@@ -65,6 +65,8 @@ export class TransactionsService {
         },
         include,
       });
+      // A payment on a recurring bill starts its next cycle, which reshapes later months' shares.
+      await this.lifecycle.syncRecurringLines(tx, dto.categoryId);
       return toDto(row);
     });
   }
@@ -96,6 +98,8 @@ export class TransactionsService {
         },
         include,
       });
+      await this.lifecycle.syncRecurringLines(tx, categoryId);
+      if (categoryId !== current.categoryId) await this.lifecycle.syncRecurringLines(tx, current.categoryId);
       return toDto(row);
     });
   }
@@ -106,6 +110,7 @@ export class TransactionsService {
       if (!current) throw notFound(`Transaction ${id} not found`);
       await this.lifecycle.assertOpen(tx, monthOf(current.date));
       await tx.transaction.delete({ where: { id } });
+      await this.lifecycle.syncRecurringLines(tx, current.categoryId);
     });
   }
 

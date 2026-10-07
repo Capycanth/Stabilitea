@@ -3,10 +3,11 @@ import type { GroupSummary } from '@stabilitea/shared';
 import { BudgetProgress } from '../../shared/budget-progress/budget-progress';
 import { Icon } from '../../shared/icon/icon';
 import { MoneyPipe } from '../../shared/money-pipe';
+import { TypeChip } from '../../shared/type-chip/type-chip';
 
 @Component({
   selector: 'app-group-card',
-  imports: [BudgetProgress, Icon, MoneyPipe],
+  imports: [BudgetProgress, Icon, MoneyPipe, TypeChip],
   host: { class: 'card' },
   template: `
     <div class="head">
@@ -27,9 +28,7 @@ import { MoneyPipe } from '../../shared/money-pipe';
           <div class="category-head">
             <span class="category-name">
               {{ category.name }}
-              @if (category.fund) {
-                <span class="chip chip-green fund"><app-icon name="rollover" [size]="12" />Fund</span>
-              }
+              <app-type-chip [type]="category.type" />
             </span>
             <span class="money muted">{{ category.spentCents | money }}</span>
           </div>
@@ -47,7 +46,6 @@ import { MoneyPipe } from '../../shared/money-pipe';
     .categories { margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--st-line); display: grid; gap: 12px; }
     .category-head { display: flex; justify-content: space-between; gap: 8px; font-size: 0.9rem; font-weight: 500; }
     .category-name { display: inline-flex; align-items: center; gap: 6px; }
-    .fund { font-size: 0.72rem; padding-block: 1px; }
   `,
 })
 export class GroupCard {

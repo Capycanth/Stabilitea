@@ -1,11 +1,15 @@
 <th scope="row" class="name">
   {{ line().categoryName }}
-  @if (line().fund) {
-    <span class="chip chip-green fund"><app-icon name="rollover" [size]="12" />Fund</span>
+  <app-type-chip [type]="line().type" />
+  @if (line().recurring; as bill) {
+    <span class="bill-info">{{ billText(bill.billCents, bill.billMonths) }} · {{ statusText() }}</span>
   }
 </th>
 <td class="limit">
-  @if (readonly()) {
+  @if (line().recurring) {
+    <span class="money">{{ line().limitCents | money }}</span>
+    <span class="share-note">stored this month</span>
+  } @else if (readonly()) {
     <span class="money">{{ line().limitCents | money }}</span>
   } @else {
     <app-money-input
@@ -25,13 +29,15 @@
   }
 </td>
 <td class="end money" data-label="Balance in" [class.deficit]="line().carryInCents < 0">
-  @if (line().fund || line().carryInCents !== 0) {
+  @if (line().type !== 'standard' || line().carryInCents !== 0) {
     {{ line().carryInCents | money }}
     @if (line().carryInCents < 0) {
       <span class="visually-hidden">(fund deficit carried from last month)</span>
+    } @else if (line().recurring) {
+      <span class="visually-hidden">(already stored for the bill)</span>
     }
   } @else {
-    <span class="muted" aria-label="Not a fund">—</span>
+    <span class="muted" aria-label="No balance">—</span>
   }
 </td>
 <td class="end money" data-label="From savings">
@@ -43,7 +49,16 @@
 </td>
 <td class="end money" data-label="Spent">{{ line().spentCents | money }}</td>
 <td class="end money remaining" data-label="Remaining">
-  @if (line().remainingCents < 0) {
+  @if (line().recurring && line().remainingCents < 0) {
+    <span class="over-label"><app-icon name="warning" [size]="14" />Short by {{ -line().remainingCents | money }}</span>
+    <span class="share-note">comes out of savings at close</span>
+  } @else if (line().recurring?.status === 'paid') {
+    {{ line().remainingCents | money }}
+    <span class="share-note">left over, back to savings at close</span>
+  } @else if (line().recurring) {
+    {{ line().remainingCents | money }}
+    <span class="share-note">stored for the bill</span>
+  } @else if (line().remainingCents < 0) {
     <span class="over-label"><app-icon name="warning" [size]="14" />Over by {{ -line().remainingCents | money }}</span>
     @if (canPayDeficit()) {
       <button type="button" class="btn btn-sm pay" [disabled]="busy()" (click)="payDeficit.emit(line())">

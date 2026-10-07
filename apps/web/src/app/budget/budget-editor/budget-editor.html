@@ -48,7 +48,7 @@
           {{ closed() ? monthName(budgetValue.month) + ' is closed' : 'Close ' + monthName(budgetValue.month) }}
         </h2>
         @if (closed()) {
-          <p class="small">Income, spending and fund balances were settled into savings. Reopen to make corrections, then close again.</p>
+          <p class="small">Income, spending, funds and recurring bills were settled into savings. Reopen to make corrections, then close again.</p>
           <div>
             <button type="button" class="btn" [disabled]="!budgetValue.canReopen || busy()" (click)="reopen()" aria-describedby="reopen-hint">
               <app-icon name="unlock" />Reopen {{ monthName(budgetValue.month) }}
@@ -78,7 +78,7 @@
         @if (hasPayableDeficit()) {
           Funds that are over budget can be paid down from savings.
         } @else {
-          Regular categories spend from savings; funds keep their own balance, and a fund deficit can be paid from savings.
+          Standard categories spend from savings. Funds keep their own balance, and a fund deficit can be paid from savings. Recurring bills store a share each month and are paid from what's stored.
         }
       </span>
     </p>
@@ -89,7 +89,7 @@
         <thead>
           <tr>
             <th scope="col">Category</th>
-            <th scope="col">Limit</th>
+            <th scope="col">Limit / share</th>
             <th scope="col" class="end">Balance in</th>
             <th scope="col" class="end">From savings</th>
             <th scope="col" class="end">Spent</th>

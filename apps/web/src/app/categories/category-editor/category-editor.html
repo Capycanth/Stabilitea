@@ -14,10 +14,13 @@
     <input id="category-name" class="input" type="text" autocomplete="off" [formField]="categoryForm.name" aria-describedby="category-errors" />
   </div>
   @if (parent().kind === 'expense') {
-    <div class="field limit">
-      <label for="category-limit">Default limit</label>
-      <app-money-input inputId="category-limit" describedBy="category-limit-hint category-errors" [formField]="categoryForm.defaultLimitCents" />
-    </div>
+    <app-category-type-fields idPrefix="category" [fields]="categoryForm.typeFields" />
+    @if (!isRecurring()) {
+      <div class="field limit">
+        <label for="category-limit">Default limit</label>
+        <app-money-input inputId="category-limit" describedBy="category-errors" [formField]="categoryForm.defaultLimitCents" />
+      </div>
+    }
   }
   <div class="field">
     <label for="category-parent">Group</label>
@@ -38,21 +41,7 @@
 </form>
 
 @if (parent().kind === 'expense') {
-  <div class="field">
-    <label class="checkbox">
-      <input type="checkbox" [checked]="category().fund" [disabled]="busy()" (change)="toggleFund($event)" aria-describedby="fund-hint" />
-      Fund (keeps its own balance)
-    </label>
-    <p id="fund-hint" class="hint">
-      @if (category().fund) {
-        Each month its limit moves from savings into this fund, and whatever is left (or overspent) carries into next
-        month. A deficit can be paid from savings on the Budget page.
-      } @else {
-        Spending comes straight out of savings when a month closes; the limit is a target.
-      }
-      Changes apply to open months only.
-    </p>
-  </div>
+  <p class="hint">Type and bill changes apply to open months only; closed months keep theirs.</p>
 }
 
 <div class="row">

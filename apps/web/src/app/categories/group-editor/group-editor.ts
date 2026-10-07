@@ -1,22 +1,31 @@
 import { Component, computed, inject, input, linkedSignal, output, signal } from '@angular/core';
-import { form, FormField, FormRoot, maxLength, required, type TreeValidationResult } from '@angular/forms/signals';
+import { apply, form, FormField, FormRoot, maxLength, required, type TreeValidationResult } from '@angular/forms/signals';
 import type { GroupDto, UpdateGroupRequest } from '@stabilitea/shared';
 import { errorMessage, toApiError } from '../../shared/api-error';
 import { Icon } from '../../shared/icon/icon';
 import { MoneyInput } from '../../shared/money-input/money-input';
 import { Notifier } from '../../shared/notifier';
+import {
+  CategoryTypeFields,
+  type CategoryTypeModel,
+  categoryTypeRequest,
+  categoryTypeSchema,
+  emptyCategoryType,
+} from '../category-type-fields/category-type-fields';
 import { GroupApi } from '../group-api';
 
 interface CategoryDraft {
   name: string;
   defaultLimitCents: number | null;
-  fund: boolean;
+  typeFields: CategoryTypeModel;
 }
+
+const emptyDraft = (): CategoryDraft => ({ name: '', defaultLimitCents: 0, typeFields: emptyCategoryType() });
 
 /** Detail panel for a selected group. */
 @Component({
   selector: 'app-group-editor',
-  imports: [FormField, FormRoot, Icon, MoneyInput],
+  imports: [CategoryTypeFields, FormField, FormRoot, Icon, MoneyInput],
   templateUrl: './group-editor.html',
   styles: `
     :host { display: grid; gap: 18px; }
@@ -27,7 +36,6 @@ interface CategoryDraft {
     .fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
     .grow { flex: 1 1 180px; }
     .limit { width: 150px; }
-    .fund { min-height: 40px; }
   `,
 })
 export class GroupEditor {
@@ -56,16 +64,18 @@ export class GroupEditor {
 
   private readonly categoryModel = linkedSignal<number, CategoryDraft>({
     source: () => this.group().id,
-    computation: () => ({ name: '', defaultLimitCents: 0, fund: false }),
+    computation: emptyDraft,
   });
   protected readonly categoryForm = form(
     this.categoryModel,
     (f) => {
       required(f.name, { message: 'Enter a category name' });
       maxLength(f.name, 60, { message: 'Name must be 60 characters or fewer' });
+      apply(f.typeFields, categoryTypeSchema);
     },
     { submission: { action: () => this.addCategory() } },
   );
+  protected readonly draftIsRecurring = computed(() => this.categoryModel().typeFields.type === 'recurring');
 
   protected move(delta: number): void {
     void this.update({ sortOrder: this.index() + delta }, `Moved ${this.group().name}.`);
@@ -102,14 +112,14 @@ export class GroupEditor {
   }
 
   private async addCategory(): Promise<TreeValidationResult> {
-    const { name, defaultLimitCents, fund } = this.categoryModel();
+    const { name, defaultLimitCents, typeFields } = this.categoryModel();
     try {
       const category = await this.api.createCategory(this.group().id, {
         name: name.trim(),
         defaultLimitCents: defaultLimitCents ?? 0,
-        fund: this.group().kind === 'expense' && fund,
+        ...(this.group().kind === 'expense' ? categoryTypeRequest(typeFields) : {}),
       });
-      this.categoryForm().reset({ name: '', defaultLimitCents: 0, fund: false });
+      this.categoryForm().reset(emptyDraft());
       this.notifier.success(`Added ${category.name}.`);
       this.changed.emit();
       return undefined;
@@ -117,7 +127,7 @@ export class GroupEditor {
       const body = toApiError(error);
       return {
         kind: 'server',
-        message: body.fieldErrors?.['name']?.[0] ?? body.fieldErrors?.['defaultLimitCents']?.[0] ?? body.message,
+        message: Object.values(body.fieldErrors ?? {})[0]?.[0] ?? body.message,
         fieldTree: this.categoryForm.name,
       };
     }

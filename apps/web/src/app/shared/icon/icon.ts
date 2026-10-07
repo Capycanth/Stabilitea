@@ -22,6 +22,7 @@ export type IconName =
   | 'archive'
   | 'rollover'
   | 'info'
+  | 'calendar'
   | 'report'
   | 'piggy-out';
 

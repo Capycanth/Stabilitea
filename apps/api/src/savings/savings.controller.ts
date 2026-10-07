@@ -1,5 +1,12 @@
 import { Controller, Get } from '@nestjs/common';
-import { addMonths, type FundBalanceDto, type SavingsDto, type SavingsEntryKind, type SavingsMonthDto } from '@stabilitea/shared';
+import {
+  addMonths,
+  type FundBalanceDto,
+  type RecurringBalanceDto,
+  type SavingsDto,
+  type SavingsEntryKind,
+  type SavingsMonthDto,
+} from '@stabilitea/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 @Controller('savings')
@@ -23,6 +30,8 @@ export class SavingsController {
           spendingCents: 0,
           fundContributionCents: 0,
           fundReleaseCents: 0,
+          recurringStoredCents: 0,
+          recurringReleaseCents: 0,
           deficitPaidCents: 0,
           changeCents: 0,
           balanceAfterCents: 0,
@@ -34,6 +43,8 @@ export class SavingsController {
       else if (entry.kind === 'spending') m.spendingCents -= amount;
       else if (entry.kind === 'fund_contribution') m.fundContributionCents -= amount;
       else if (entry.kind === 'fund_release') m.fundReleaseCents += amount;
+      else if (entry.kind === 'recurring_store') m.recurringStoredCents -= amount;
+      else if (entry.kind === 'recurring_release') m.recurringReleaseCents += amount;
       else if (entry.kind === 'deficit_payment') m.deficitPaidCents -= amount;
       m.changeCents += amount;
     }
@@ -46,7 +57,7 @@ export class SavingsController {
 
     return {
       balanceCents: running,
-      funds: await this.fundBalances(),
+      ...(await this.heldBalances()),
       months: months.reverse(),
       entries: entries.map((entry) => ({
         id: entry.id,
@@ -62,16 +73,17 @@ export class SavingsController {
   }
 
   /**
-   * Each active fund's balance after the latest close: the carry-in (plus any deficit paid) on its line in the month
-   * after the latest closed month, or in the first budgeted month when nothing has closed yet.
+   * Each active fund's balance, and the money stored for each active recurring bill, after the latest close: the
+   * carry-in (plus any deficit paid) on its line in the month after the latest closed month, or in the first budgeted
+   * month when nothing has closed yet.
    */
-  private async fundBalances(): Promise<FundBalanceDto[]> {
-    const funds = await this.prisma.category.findMany({
-      where: { fund: true, archivedAt: null, group: { kind: 'expense', archivedAt: null } },
+  private async heldBalances(): Promise<Pick<SavingsDto, 'funds' | 'recurring'>> {
+    const categories = await this.prisma.category.findMany({
+      where: { type: { in: ['fund', 'recurring'] }, archivedAt: null, group: { kind: 'expense', archivedAt: null } },
       include: { group: true },
       orderBy: [{ group: { sortOrder: 'asc' } }, { groupId: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }],
     });
-    if (!funds.length) return [];
+    if (!categories.length) return { funds: [], recurring: [] };
 
     const lastClosed = await this.prisma.budgetMonth.findFirst({
       where: { status: 'closed' },
@@ -82,15 +94,28 @@ export class SavingsController {
       ? addMonths(lastClosed.month, 1)
       : (await this.prisma.budgetMonth.findFirst({ orderBy: { month: 'asc' }, select: { month: true } }))?.month;
     const lines = anchor
-      ? await this.prisma.budgetLine.findMany({ where: { month: anchor, categoryId: { in: funds.map((f) => f.id) } } })
+      ? await this.prisma.budgetLine.findMany({ where: { month: anchor, categoryId: { in: categories.map((c) => c.id) } } })
       : [];
-    const bySub = new Map(lines.map((line) => [line.categoryId, line.carryInCents + line.deficitPaidCents]));
+    const lineByCategory = new Map(lines.map((line) => [line.categoryId, line]));
+    const held = (id: number) => {
+      const line = lineByCategory.get(id);
+      return line ? line.carryInCents + line.deficitPaidCents : 0;
+    };
 
-    return funds.map((category) => ({
-      categoryId: category.id,
-      categoryName: category.name,
-      groupName: category.group.name,
-      balanceCents: bySub.get(category.id) ?? 0,
-    }));
+    const funds: FundBalanceDto[] = categories
+      .filter((c) => c.type === 'fund')
+      .map((c) => ({ categoryId: c.id, categoryName: c.name, groupName: c.group.name, balanceCents: held(c.id) }));
+    const recurring: RecurringBalanceDto[] = categories
+      .filter((c) => c.type === 'recurring' && c.billCents !== null && c.billMonths !== null && c.nextDueMonth !== null)
+      .map((c) => ({
+        categoryId: c.id,
+        categoryName: c.name,
+        groupName: c.group.name,
+        billCents: c.billCents!,
+        billMonths: c.billMonths!,
+        dueMonth: lineByCategory.get(c.id)?.dueMonth ?? c.nextDueMonth!,
+        storedCents: held(c.id),
+      }));
+    return { funds, recurring };
   }
 }

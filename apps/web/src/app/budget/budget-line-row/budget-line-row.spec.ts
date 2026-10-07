@@ -14,7 +14,8 @@ const line: BudgetLineDto = {
   carryInCents: 2_500,
   deficitPaidCents: 0,
   availableCents: 52_500,
-  fund: true,
+  type: 'fund',
+  recurring: null,
   spentCents: 55_000,
   remainingCents: -2_500,
 };
@@ -143,7 +144,7 @@ describe('BudgetLineRow', () => {
     await fixture.whenStable();
     expect(payButton()).toBeUndefined();
     fixture.componentInstance.savings.set(10_000);
-    fixture.componentInstance.line.set({ ...line, fund: false, carryInCents: 0 });
+    fixture.componentInstance.line.set({ ...line, type: 'standard', carryInCents: 0 });
     await fixture.whenStable();
     expect(payButton()).toBeUndefined();
   });
@@ -151,10 +152,53 @@ describe('BudgetLineRow', () => {
   it('marks funds and shows no balance-in for regular lines', async () => {
     const { fixture, el } = await render();
     expect(el.querySelector('th')?.textContent).toContain('Fund');
-    fixture.componentInstance.line.set({ ...line, fund: false, carryInCents: 0, availableCents: 50_000, remainingCents: -5_000 });
+    fixture.componentInstance.line.set({ ...line, type: 'standard', carryInCents: 0, availableCents: 50_000, remainingCents: -5_000 });
     await fixture.whenStable();
     expect(el.querySelector('th')?.textContent).not.toContain('Fund');
     expect(el.querySelector('[data-label="Balance in"]')?.textContent?.trim()).toBe('—');
+  });
+
+  it('shows a recurring share as stored, not editable, with the bill and its status', async () => {
+    const { fixture, el } = await render();
+    fixture.componentInstance.line.set({
+      ...line,
+      categoryName: 'Insurance',
+      type: 'recurring',
+      recurring: { billCents: 20_000, billMonths: 4, dueMonth: '2026-12', status: 'saving' },
+      limitCents: 5_000,
+      carryInCents: 5_000,
+      availableCents: 10_000,
+      spentCents: 0,
+      remainingCents: 10_000,
+    });
+    await fixture.whenStable();
+    const name = el.querySelector('th')?.textContent ?? '';
+    expect(name).toContain('Recurring');
+    expect(name).toContain('$200.00 every 4 months · Due December 2026');
+    expect(el.querySelector('input')).toBeNull();
+    expect(el.querySelector('.limit')?.textContent).toContain('$50.00');
+    expect(el.querySelector('.remaining')?.textContent).toContain('stored for the bill');
+    http.expectNone('/api/budgets/2026-09/lines/7');
+  });
+
+  it('shows a recurring shortfall as coming out of savings, with no deficit payment', async () => {
+    const { fixture, el } = await render();
+    fixture.componentInstance.line.set({
+      ...line,
+      type: 'recurring',
+      recurring: { billCents: 20_000, billMonths: 4, dueMonth: '2026-09', status: 'paid' },
+      limitCents: 5_000,
+      carryInCents: 15_000,
+      availableCents: 20_000,
+      spentCents: 21_000,
+      remainingCents: -1_000,
+    });
+    await fixture.whenStable();
+    const text = el.textContent ?? '';
+    expect(text).toContain('Paid this month');
+    expect(text).toContain('Short by $10.00');
+    expect(text).toContain('comes out of savings at close');
+    expect([...el.querySelectorAll('button')].some((b) => b.textContent?.includes('Pay from savings'))).toBe(false);
   });
 
   it('is read-only in a closed month', async () => {

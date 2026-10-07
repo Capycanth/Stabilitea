@@ -4,6 +4,7 @@ import { errorMessage } from '../../shared/api-error';
 import { Icon } from '../../shared/icon/icon';
 import { MoneyPipe } from '../../shared/money-pipe';
 import { monthLabel } from '../../shared/month';
+import { billText } from '../../shared/recurring-text';
 import { SavingsApi } from '../savings-api';
 
 interface MonthGroup {
@@ -17,6 +18,8 @@ const KIND_LABEL: Record<SavingsEntryKind, string> = {
   spending: 'Spending',
   fund_contribution: 'Into fund',
   fund_release: 'Fund released',
+  recurring_store: 'Stored for bill',
+  recurring_release: 'Bill settled',
   deficit_payment: 'Fund deficit paid',
 };
 
@@ -32,6 +35,8 @@ export class SavingsPage {
   protected readonly savings = this.api.savingsResource();
   protected readonly loadError = computed(() => errorMessage(this.savings.error()));
   protected readonly kindLabel = KIND_LABEL;
+  protected readonly billText = billText;
+  protected readonly monthLabel = monthLabel;
 
   protected readonly groups = computed<MonthGroup[]>(() => {
     if (!this.savings.hasValue()) return [];
