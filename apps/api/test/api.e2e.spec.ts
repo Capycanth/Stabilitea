@@ -66,6 +66,79 @@ describe('Stabilitea API (e2e)', () => {
       expect(list.find((c) => c.id === created.id)?.archivedAt).not.toBeNull();
     });
 
+    it('drops archived categories from open budgets unless they still hold spending', async () => {
+      await http().get('/api/budgets/2026-09').expect(200);
+      const internet = category('Housing', 'Internet');
+      const dining = category('Food', 'Dining Out');
+      await http().post('/api/transactions').send({ date: '2026-09-04', type: 'expense', amountCents: 1_500, categoryId: dining.id }).expect(201);
+      await http().patch(`/api/categories/${internet.id}`).send({ archived: true }).expect(200);
+      await http().patch(`/api/categories/${dining.id}`).send({ archived: true }).expect(200);
+      const personal = groups.find((g) => g.name === 'Personal')!;
+      await http().patch(`/api/groups/${personal.id}`).send({ archived: true }).expect(200);
+
+      const budget: BudgetMonthDto = (await http().get('/api/budgets/2026-09').expect(200)).body;
+      const lines = budget.groups.flatMap((g) => g.lines);
+      expect(lines.some((l) => l.categoryId === internet.id)).toBe(false);
+      expect(budget.groups.some((g) => g.groupId === personal.id)).toBe(false);
+      // Dining Out has spending this month, so it stays (flagged) until the month closes.
+      expect(lines.find((l) => l.categoryId === dining.id)).toMatchObject({ archived: true, spentCents: 1_500 });
+      expect(lines.find((l) => l.categoryId === category('Food', 'Groceries').id)).toMatchObject({ archived: false });
+
+      // A new month leaves archived categories out entirely; unarchiving brings the line back.
+      const october: BudgetMonthDto = (await http().get('/api/budgets/2026-10').expect(200)).body;
+      expect(october.groups.flatMap((g) => g.lines).some((l) => l.categoryId === dining.id)).toBe(false);
+      await http().patch(`/api/categories/${internet.id}`).send({ archived: false }).expect(200);
+      const again: BudgetMonthDto = (await http().get('/api/budgets/2026-09').expect(200)).body;
+      expect(again.groups.flatMap((g) => g.lines).some((l) => l.categoryId === internet.id)).toBe(true);
+    });
+
+    it('permanently deletes archived categories and groups that were never used', async () => {
+      await http().get('/api/budgets/2026-09').expect(200);
+      const internet = category('Housing', 'Internet');
+      const res = await http().delete(`/api/categories/${internet.id}`).expect(409);
+      expect(res.body).toMatchObject({ code: 'CONFLICT', message: expect.stringContaining('Archive') });
+
+      await http().patch(`/api/categories/${internet.id}`).send({ archived: true }).expect(200);
+      let list: GroupDto[] = (await http().get('/api/groups?includeArchived=true').expect(200)).body;
+      expect(list.find((g) => g.name === 'Housing')!.categories.find((c) => c.id === internet.id)).toMatchObject({ deletable: true });
+      await http().delete(`/api/categories/${internet.id}`).expect(204);
+      list = (await http().get('/api/groups?includeArchived=true').expect(200)).body;
+      const housing = list.find((g) => g.name === 'Housing')!;
+      expect(housing.categories.map((c) => [c.name, c.sortOrder])).toEqual([['Rent/Mortgage', 0], ['Utilities', 1]]);
+      await http().delete(`/api/categories/${internet.id}`).expect(404);
+
+      // A whole archived group goes with its categories, including active ones inside it.
+      const personal = groups.find((g) => g.name === 'Personal')!;
+      await http().delete(`/api/groups/${personal.id}`).expect(409);
+      await http().patch(`/api/groups/${personal.id}`).send({ archived: true }).expect(200);
+      await http().delete(`/api/groups/${personal.id}`).expect(204);
+      list = (await http().get('/api/groups?includeArchived=true').expect(200)).body;
+      expect(list.map((g) => [g.name, g.sortOrder])).toEqual([['Income', 0], ['Housing', 1], ['Food', 2], ['Transportation', 3]]);
+      expect(await prisma.category.count({ where: { groupId: personal.id } })).toBe(0);
+    });
+
+    it('keeps archived categories with history from being deleted', async () => {
+      const dining = category('Food', 'Dining Out');
+      const groceries = category('Food', 'Groceries');
+      const food = groups.find((g) => g.name === 'Food')!;
+      await http().post('/api/transactions').send({ date: '2026-09-04', type: 'expense', amountCents: 1_500, categoryId: dining.id }).expect(201);
+      await http().get('/api/budgets/2026-08').expect(200);
+      await http().post('/api/budgets/2026-08/close').expect(200);
+
+      await http().patch(`/api/groups/${food.id}`).send({ archived: true }).expect(200);
+      const list: GroupDto[] = (await http().get('/api/groups?includeArchived=true').expect(200)).body;
+      const archivedFood = list.find((g) => g.id === food.id)!;
+      expect(archivedFood.deletable).toBe(false);
+      // Dining Out has a transaction; Groceries has a line in closed August.
+      expect(archivedFood.categories.map((c) => c.deletable)).toEqual([false, false]);
+
+      const res = await http().delete(`/api/groups/${food.id}`).expect(409);
+      expect(res.body.message).toContain('Groceries, Dining Out have history');
+      await http().delete(`/api/categories/${dining.id}`).expect(409);
+      await http().delete(`/api/categories/${groceries.id}`).expect(409);
+      expect(await prisma.category.count({ where: { groupId: food.id } })).toBe(2);
+    });
+
     it('rejects duplicate names with a field error', async () => {
       const res = await http().post('/api/groups').send({ name: 'Food', kind: 'expense' }).expect(400);
       expect(res.body).toMatchObject({ code: 'VALIDATION_FAILED', fieldErrors: { name: [expect.stringContaining('already exists')] } });

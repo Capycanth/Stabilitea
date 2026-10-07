@@ -18,6 +18,7 @@ const line: BudgetLineDto = {
   recurring: null,
   spentCents: 55_000,
   remainingCents: -2_500,
+  archived: false,
 };
 
 @Component({

@@ -29,11 +29,21 @@ export class GroupApi {
     return firstValueFrom(this.http.patch<GroupDto>(`/api/groups/${id}`, body));
   }
 
+  /** Permanently delete an archived group whose categories were never used. */
+  delete(id: number): Promise<void> {
+    return firstValueFrom(this.http.delete<void>(`/api/groups/${id}`));
+  }
+
   createCategory(groupId: number, body: CreateCategoryRequest): Promise<CategoryDto> {
     return firstValueFrom(this.http.post<CategoryDto>(`/api/groups/${groupId}/categories`, body));
   }
 
   updateCategory(id: number, body: UpdateCategoryRequest): Promise<CategoryDto> {
     return firstValueFrom(this.http.patch<CategoryDto>(`/api/categories/${id}`, body));
+  }
+
+  /** Permanently delete an archived category that was never used. */
+  deleteCategory(id: number): Promise<void> {
+    return firstValueFrom(this.http.delete<void>(`/api/categories/${id}`));
   }
 }

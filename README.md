@@ -111,6 +111,12 @@ Choices made where the design document left room:
 - **Budget lines exist only for expense categories.** Income is tracked against planned income.
 - **New or unarchived expense categories** get a line (at their default limit) in every open month,
   so their spending shows up immediately.
+- **Archiving removes a category from open budgets.** Its open-month lines are dropped unless they still hold
+  money or spending (a carried fund balance, stored bill money, a deficit payment, or transactions that month);
+  those stay, marked Archived, so closing can settle them.
+- **Active → Archived → Deleted.** An archived category (or every category in an archived group) that was never
+  used — no transactions, savings entries or closed-month lines — can be permanently deleted with
+  `DELETE /api/categories/:id` or `DELETE /api/groups/:id`. Anything with history stays archived (`409`).
 - **Closing out of order** is allowed as long as the next month is open; closing an earlier month after a
   later one is closed is blocked, which keeps closed history stable.
 - API responses add `canClose` / `canReopen` to budgets, and `earliestOpenPastMonth`,

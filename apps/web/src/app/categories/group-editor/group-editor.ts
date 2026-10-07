@@ -1,7 +1,8 @@
-import { Component, computed, inject, input, linkedSignal, output, signal } from '@angular/core';
+import { Component, computed, inject, input, linkedSignal, output, signal, viewChild } from '@angular/core';
 import { apply, form, FormField, FormRoot, maxLength, required, type TreeValidationResult } from '@angular/forms/signals';
 import type { GroupDto, UpdateGroupRequest } from '@stabilitea/shared';
 import { errorMessage, toApiError } from '../../shared/api-error';
+import { ConfirmDialog } from '../../shared/confirm-dialog/confirm-dialog';
 import { Icon } from '../../shared/icon/icon';
 import { MoneyInput } from '../../shared/money-input/money-input';
 import { Notifier } from '../../shared/notifier';
@@ -25,7 +26,7 @@ const emptyDraft = (): CategoryDraft => ({ name: '', defaultLimitCents: 0, typeF
 /** Detail panel for a selected group. */
 @Component({
   selector: 'app-group-editor',
-  imports: [CategoryTypeFields, FormField, FormRoot, Icon, MoneyInput],
+  imports: [CategoryTypeFields, ConfirmDialog, FormField, FormRoot, Icon, MoneyInput],
   templateUrl: './group-editor.html',
   styles: `
     :host { display: grid; gap: 18px; }
@@ -48,6 +49,7 @@ export class GroupEditor {
   readonly count = input.required<number>();
   readonly changed = output<void>();
 
+  private readonly confirm = viewChild.required(ConfirmDialog);
   protected readonly busy = signal(false);
   protected readonly isFirst = computed(() => this.index() === 0);
   protected readonly isLast = computed(() => this.index() >= this.count() - 1);
@@ -84,6 +86,31 @@ export class GroupEditor {
   protected toggleArchived(): void {
     const archived = !this.group().archivedAt;
     void this.update({ archived }, `${this.group().name} ${archived ? 'archived' : 'restored'}.`);
+  }
+
+  protected async deleteGroup(): Promise<void> {
+    const { name, categories } = this.group();
+    const count = categories.length;
+    const ok = await this.confirm().ask({
+      title: `Delete ${name}?`,
+      message:
+        `${name}` +
+        (count ? ` and its ${count} categor${count === 1 ? 'y' : 'ies'}` : '') +
+        ` will be permanently removed. This can't be undone.`,
+      confirmLabel: 'Delete permanently',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    this.busy.set(true);
+    try {
+      await this.api.delete(this.group().id);
+      this.notifier.success(`${name} deleted.`);
+      this.changed.emit();
+    } catch (error) {
+      this.notifier.error(errorMessage(error));
+    } finally {
+      this.busy.set(false);
+    }
   }
 
   private async update(body: UpdateGroupRequest, success: string): Promise<void> {

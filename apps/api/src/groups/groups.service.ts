@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { CategoryDto, CategoryType, GroupDto, GroupKind, RecurringBillFields } from '@stabilitea/shared';
 import { BudgetLifecycleService } from '../budgets/budget-lifecycle.service.js';
-import { fieldError, notFound, validationError } from '../common/errors.js';
+import { conflict, fieldError, notFound, validationError } from '../common/errors.js';
 import type { Group, Category } from '../generated/prisma/client.js';
 import { type Db, PrismaService } from '../prisma/prisma.service.js';
 import type { CreateGroupDto, CreateCategoryDto, UpdateGroupDto, UpdateCategoryDto } from './groups.dto.js';
@@ -13,7 +13,32 @@ export function moveItem(ids: number[], id: number, targetIndex: number): number
   return [...rest.slice(0, index), id, ...rest.slice(index)];
 }
 
-function toCategoryDto(category: Category & { _count?: { transactions: number } }): CategoryDto {
+/** Counts that show whether a category was ever used: transactions, savings entries and lines in closed months. */
+const USAGE_COUNTS = {
+  _count: {
+    select: {
+      transactions: true,
+      savingsEntries: true,
+      budgetLines: { where: { budgetMonth: { status: 'closed' } } },
+    },
+  },
+} as const;
+
+interface UsageCounts {
+  transactions: number;
+  savingsEntries: number;
+  budgetLines: number;
+}
+
+type CategoryRow = Category & { _count?: UsageCounts };
+
+/** A category was used if it has transactions, savings entries or a line in a closed month. */
+export function wasUsed(counts: UsageCounts): boolean {
+  return counts.transactions > 0 || counts.savingsEntries > 0 || counts.budgetLines > 0;
+}
+
+function toCategoryDto(category: CategoryRow, groupArchived: boolean): CategoryDto {
+  const archived = category.archivedAt !== null || groupArchived;
   return {
     id: category.id,
     groupId: category.groupId,
@@ -26,6 +51,7 @@ function toCategoryDto(category: Category & { _count?: { transactions: number } 
     sortOrder: category.sortOrder,
     archivedAt: category.archivedAt?.toISOString() ?? null,
     transactionCount: category._count?.transactions ?? 0,
+    deletable: archived && category._count !== undefined && !wasUsed(category._count),
   };
 }
 
@@ -80,7 +106,7 @@ export class GroupsService {
         categories: {
           where,
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-          include: { _count: { select: { transactions: true } } },
+          include: USAGE_COUNTS,
         },
       },
     });
@@ -117,6 +143,9 @@ export class GroupsService {
       if (dto.archived === false && current.archivedAt) {
         const categories = await tx.category.findMany({ where: { groupId: id, archivedAt: null } });
         for (const category of categories) await this.lifecycle.addLineToOpenMonths(tx, category.id);
+      } else if (dto.archived === true && !current.archivedAt) {
+        const categories = await tx.category.findMany({ where: { groupId: id }, select: { id: true } });
+        await this.lifecycle.dropArchivedLines(tx, categories.map((c) => c.id));
       }
 
       if (dto.sortOrder !== undefined) {
@@ -147,7 +176,7 @@ export class GroupsService {
         },
       });
       await this.lifecycle.addLineToOpenMonths(tx, category.id);
-      return toCategoryDto(category);
+      return toCategoryDto(category, group.archivedAt !== null);
     });
   }
 
@@ -193,6 +222,8 @@ export class GroupsService {
 
       if (dto.archived === false && current.archivedAt) {
         await this.lifecycle.addLineToOpenMonths(tx, id);
+      } else if (dto.archived === true && !current.archivedAt) {
+        await this.lifecycle.dropArchivedLines(tx, [id]);
       }
 
       if (dto.sortOrder !== undefined) {
@@ -209,10 +240,73 @@ export class GroupsService {
 
       const updated = await tx.category.findUniqueOrThrow({
         where: { id },
-        include: { _count: { select: { transactions: true } } },
+        include: { ...USAGE_COUNTS, group: true },
       });
-      return toCategoryDto(updated);
+      return toCategoryDto(updated, updated.group.archivedAt !== null);
     });
+  }
+
+  /**
+   * Permanently delete an archived category that was never used. Its lines in open months go with it. A category with
+   * transactions, savings entries or closed-month lines can only stay archived (409).
+   */
+  async deleteCategory(id: number): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const category = await tx.category.findUnique({ where: { id }, include: { ...USAGE_COUNTS, group: true } });
+      if (!category) throw notFound(`Category ${id} not found`);
+      if (!category.archivedAt && !category.group.archivedAt) {
+        throw conflict(`Archive ${category.name} before deleting it.`);
+      }
+      if (wasUsed(category._count)) {
+        throw conflict(`${category.name} has history (transactions or closed months), so it can only be archived.`);
+      }
+      await this.removeCategories(tx, [id]);
+    });
+  }
+
+  /**
+   * Permanently delete an archived group and all its categories. Every category must be unused (see
+   * {@link deleteCategory}); otherwise nothing is deleted (409).
+   */
+  async delete(id: number): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const group = await tx.group.findUnique({
+        where: { id },
+        include: { categories: { include: USAGE_COUNTS, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+      });
+      if (!group) throw notFound(`Group ${id} not found`);
+      if (!group.archivedAt) throw conflict(`Archive ${group.name} before deleting it.`);
+      const used = group.categories.filter((c) => wasUsed(c._count)).map((c) => c.name);
+      if (used.length) {
+        throw conflict(`${group.name} can't be deleted: ${used.join(', ')} ${used.length === 1 ? 'has' : 'have'} history.`);
+      }
+      await this.removeCategories(tx, group.categories.map((c) => c.id));
+      await tx.group.delete({ where: { id } });
+      await this.renumberGroups(tx);
+    });
+  }
+
+  private async removeCategories(db: Db, ids: number[]): Promise<void> {
+    const categories = await db.category.findMany({ where: { id: { in: ids } }, select: { groupId: true } });
+    await db.budgetLine.deleteMany({ where: { categoryId: { in: ids } } });
+    await db.category.deleteMany({ where: { id: { in: ids } } });
+    for (const groupId of new Set(categories.map((c) => c.groupId))) {
+      const rest = await db.category.findMany({
+        where: { groupId },
+        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+        select: { id: true },
+      });
+      for (const [index, category] of rest.entries()) {
+        await db.category.update({ where: { id: category.id }, data: { sortOrder: index } });
+      }
+    }
+  }
+
+  private async renumberGroups(db: Db): Promise<void> {
+    const rest = await db.group.findMany({ orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }], select: { id: true } });
+    for (const [index, group] of rest.entries()) {
+      await db.group.update({ where: { id: group.id }, data: { sortOrder: index } });
+    }
   }
 
   private async getOne(id: number): Promise<GroupDto> {
@@ -221,21 +315,24 @@ export class GroupsService {
       include: {
         categories: {
           orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-          include: { _count: { select: { transactions: true } } },
+          include: USAGE_COUNTS,
         },
       },
     });
     return this.toDto(row, row.categories);
   }
 
-  private toDto(row: Group, categories: (Category & { _count?: { transactions: number } })[]): GroupDto {
+  /** `categories` must be all of the group's categories (archived too) for `deletable` to be right. */
+  private toDto(row: Group, categories: CategoryRow[]): GroupDto {
+    const archived = row.archivedAt !== null;
     return {
       id: row.id,
       name: row.name,
       kind: row.kind as GroupKind,
       sortOrder: row.sortOrder,
       archivedAt: row.archivedAt?.toISOString() ?? null,
-      categories: categories.map(toCategoryDto),
+      categories: categories.map((category) => toCategoryDto(category, archived)),
+      deletable: archived && categories.every((c) => c._count !== undefined && !wasUsed(c._count)),
     };
   }
 

@@ -11,7 +11,8 @@ const groups: GroupDto[] = [
     kind: 'income',
     sortOrder: 0,
     archivedAt: null,
-    categories: [{ id: 10, groupId: 1, name: 'Salary', defaultLimitCents: 0, type: 'standard', billCents: null, billMonths: null, nextDueMonth: null, sortOrder: 0, archivedAt: null, transactionCount: 0 }],
+    categories: [{ id: 10, groupId: 1, name: 'Salary', defaultLimitCents: 0, type: 'standard', billCents: null, billMonths: null, nextDueMonth: null, sortOrder: 0, archivedAt: null, transactionCount: 0, deletable: false }],
+    deletable: false,
   },
   {
     id: 2,
@@ -19,7 +20,8 @@ const groups: GroupDto[] = [
     kind: 'expense',
     sortOrder: 1,
     archivedAt: null,
-    categories: [{ id: 20, groupId: 2, name: 'Groceries', defaultLimitCents: 50_000, type: 'standard', billCents: null, billMonths: null, nextDueMonth: null, sortOrder: 0, archivedAt: null, transactionCount: 0 }],
+    categories: [{ id: 20, groupId: 2, name: 'Groceries', defaultLimitCents: 50_000, type: 'standard', billCents: null, billMonths: null, nextDueMonth: null, sortOrder: 0, archivedAt: null, transactionCount: 0, deletable: false }],
+    deletable: false,
   },
 ];
 

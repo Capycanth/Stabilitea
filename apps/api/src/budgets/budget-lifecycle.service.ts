@@ -192,9 +192,15 @@ export function planClose(
 export class BudgetLifecycleService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Returns the budget month, creating it by copying the most recent earlier month if missing. */
+  /**
+   * Returns the budget month, creating it by copying the most recent earlier month if missing. Also drops archived
+   * categories' empty lines from open months (see {@link dropArchivedLines}).
+   */
   ensureMonth(month: string): Promise<void> {
-    return this.prisma.$transaction((tx) => this.ensureMonthIn(tx, month));
+    return this.prisma.$transaction(async (tx) => {
+      await this.ensureMonthIn(tx, month);
+      await this.dropArchivedLines(tx);
+    });
   }
 
   async ensureMonthIn(db: Db, month: string): Promise<void> {
@@ -430,6 +436,32 @@ export class BudgetLifecycleService {
     }
     await db.budgetLine.updateMany({ where, data: { type } });
     await this.syncRecurringLines(db, categoryId);
+  }
+
+  /**
+   * Remove open-month lines whose category or group is archived, so archived categories leave the budget. A line
+   * that still holds money (a carried fund balance, stored bill money or a deficit payment) or has spending that month
+   * stays, because closing has to settle it with savings.
+   */
+  async dropArchivedLines(db: Db, categoryIds?: number[]): Promise<void> {
+    const lines = await db.budgetLine.findMany({
+      where: {
+        budgetMonth: { status: 'open' },
+        carryInCents: 0,
+        deficitPaidCents: 0,
+        savingsEntries: { none: {} },
+        category: { OR: [{ archivedAt: { not: null } }, { group: { archivedAt: { not: null } } }] },
+        ...(categoryIds ? { categoryId: { in: categoryIds } } : {}),
+      },
+      select: { id: true, month: true, categoryId: true },
+    });
+    for (const line of lines) {
+      const { first, last } = monthBounds(line.month);
+      const spending = await db.transaction.count({
+        where: { categoryId: line.categoryId, date: { gte: first, lte: last } },
+      });
+      if (spending === 0) await db.budgetLine.delete({ where: { id: line.id } });
+    }
   }
 
   /** Give a newly active expense category a line (at its default limit) in every open month. */
