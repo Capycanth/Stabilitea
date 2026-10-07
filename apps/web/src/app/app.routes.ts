@@ -1,5 +1,5 @@
 import type { Routes } from '@angular/router';
-import { AppShell } from './shell/app-shell';
+import { AppShell } from './shell/app-shell/app-shell';
 import { currentMonth, validMonthMatch } from './shared/month';
 
 export const routes: Routes = [
@@ -11,17 +11,17 @@ export const routes: Routes = [
       {
         path: 'categories',
         title: 'Categories · Stabilitea',
-        loadComponent: () => import('./categories/category-tree').then((m) => m.CategoryTree),
+        loadComponent: () => import('./categories/category-tree/category-tree').then((m) => m.CategoryTree),
       },
       {
         path: 'savings',
         title: 'Savings · Stabilitea',
-        loadComponent: () => import('./savings/savings-page').then((m) => m.SavingsPage),
+        loadComponent: () => import('./savings/savings-page/savings-page').then((m) => m.SavingsPage),
       },
       {
         path: 'reports',
         title: 'Reports · Stabilitea',
-        loadComponent: () => import('./reports/reports-page').then((m) => m.ReportsPage),
+        loadComponent: () => import('./reports/reports-page/reports-page').then((m) => m.ReportsPage),
       },
       {
         path: ':month',
@@ -30,17 +30,17 @@ export const routes: Routes = [
           {
             path: '',
             title: 'Overview · Stabilitea',
-            loadComponent: () => import('./overview/overview').then((m) => m.Overview),
+            loadComponent: () => import('./overview/overview/overview').then((m) => m.Overview),
           },
           {
             path: 'transactions',
             title: 'Transactions · Stabilitea',
-            loadComponent: () => import('./transactions/transaction-list').then((m) => m.TransactionList),
+            loadComponent: () => import('./transactions/transaction-list/transaction-list').then((m) => m.TransactionList),
           },
           {
             path: 'budget',
             title: 'Budget · Stabilitea',
-            loadComponent: () => import('./budget/budget-editor').then((m) => m.BudgetEditor),
+            loadComponent: () => import('./budget/budget-editor/budget-editor').then((m) => m.BudgetEditor),
           },
         ],
       },

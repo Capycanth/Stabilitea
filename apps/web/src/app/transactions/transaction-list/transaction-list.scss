@@ -1,0 +1,19 @@
+.notice { display: flex; gap: 10px; align-items: flex-start; }
+.totals { display: flex; flex-wrap: wrap; gap: 8px 24px; padding: 10px 16px; border-radius: 12px; background: var(--st-surface); border: 1px solid var(--st-line); }
+.totals p { display: flex; gap: 8px; align-items: baseline; }
+.totals .money, .totals .num { font-weight: 650; }
+.groups { display: grid; gap: 20px; }
+.group { display: grid; gap: 6px; }
+.day { font-family: var(--st-font-body); font-size: 0.8rem; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; color: var(--st-ink-muted); }
+.items { list-style: none; margin: 0; padding: 0; background: var(--st-surface); border: 1px solid var(--st-line); border-radius: 12px; }
+.item { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px 16px; padding: 10px 12px 10px 16px; }
+.item + .item { border-top: 1px solid var(--st-line); }
+.payee { font-weight: 550; overflow-wrap: anywhere; }
+.meta { font-size: 0.85rem; overflow-wrap: anywhere; }
+.amount { font-weight: 650; text-align: right; }
+.income { color: var(--st-green); }
+.actions { display: flex; gap: 2px; }
+@media (max-width: 560px) {
+  .item { grid-template-columns: minmax(0, 1fr) auto; }
+  .actions { grid-column: 1 / -1; justify-content: flex-end; margin-top: -6px; }
+}

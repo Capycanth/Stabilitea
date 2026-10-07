@@ -1,0 +1,66 @@
+<div class="page">
+  <div class="page-header">
+    <div>
+      <p class="eyebrow">Export</p>
+      <h1>Yearly report</h1>
+    </div>
+  </div>
+
+  @if (years.error() && !years.hasValue()) {
+    <p class="form-error" role="alert"><app-icon name="warning" />{{ loadError() }}</p>
+  }
+
+  <section class="card stack" aria-labelledby="report-title">
+    <h2 id="report-title">Download an Excel workbook</h2>
+    <p class="muted">One file for a calendar year, built from your budgets, transactions and savings ledger.</p>
+
+    @if (years.hasValue()) {
+      <div class="field">
+        <span class="label" id="report-year-label">Year</span>
+        <ul
+          ngListbox
+          class="filter-listbox"
+          orientation="horizontal"
+          selectionMode="follow"
+          aria-labelledby="report-year-label"
+          [value]="selection()"
+          (valueChange)="selection.set($event)"
+        >
+          @for (year of years.value().years; track year) {
+            <li ngOption [value]="year" [label]="'' + year">{{ year }}</li>
+          }
+        </ul>
+      </div>
+
+      @if (selectedYear(); as year) {
+        <div>
+          <a class="btn btn-primary" [href]="downloadUrl()" [attr.download]="'stabilitea-' + year + '-report.xlsx'">
+            <app-icon name="download" />
+            Download {{ year }} report (.xlsx)
+          </a>
+        </div>
+      }
+    } @else if (years.isLoading()) {
+      <p class="loading" role="status">Loading years…</p>
+    }
+  </section>
+
+  <section class="sheets" aria-labelledby="sheets-title">
+    <h2 id="sheets-title" class="visually-hidden">What's in the workbook</h2>
+    <div class="card-deep sheet">
+      <app-icon name="report" />
+      <h3>Summary</h3>
+      <p>Income and expenses side by side, net, money moved into and released from funds, fund deficits paid from savings, savings at the start and end of the year, and spending by category.</p>
+    </div>
+    <div class="card-deep sheet">
+      <app-icon name="overview" />
+      <h3>Monthly</h3>
+      <p>One row per month: status, income, expenses, net, planned income, budgeted, fund contributions and releases, fund deficits paid, the change in savings and the savings balance.</p>
+    </div>
+    <div class="card-deep sheet">
+      <app-icon name="budget" />
+      <h3>Budget vs. actual</h3>
+      <p>Every subcategory for every month: regular or fund, limit, fund balance in (negative for deficits), amount paid from savings, available, spent, remaining and what happened at close.</p>
+    </div>
+  </section>
+</div>

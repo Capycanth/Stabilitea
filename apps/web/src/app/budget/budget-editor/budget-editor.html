@@ -1,0 +1,165 @@
+<div class="page">
+  <div class="page-header">
+    <div>
+      <p class="eyebrow">{{ label() }}</p>
+      <h1>Budget</h1>
+    </div>
+    @if (budget.hasValue()) {
+      @if (closed()) {
+        <span class="chip"><app-icon name="lock" [size]="13" />Closed</span>
+      } @else {
+        <span class="chip chip-green">Open</span>
+      }
+    }
+  </div>
+
+  @if (budget.error() && !budget.hasValue()) {
+    <p class="form-error" role="alert"><app-icon name="warning" />{{ loadError() }}</p>
+  }
+
+  @if (budget.hasValue()) {
+    @let budgetValue = budget.value();
+
+    <div class="top">
+      <section class="card-deep stack" aria-labelledby="income-title">
+        <h2 id="income-title" class="small-title">Planned income</h2>
+        @if (closed()) {
+          <p class="big money">{{ budgetValue.plannedIncomeCents | money }}</p>
+        } @else {
+          <div class="field">
+            <label class="visually-hidden" for="planned-income">Planned income</label>
+            <app-money-input inputId="planned-income" describedBy="planned-income-hint" [formField]="incomeForm.plannedIncomeCents" />
+            <p id="planned-income-hint" class="hint">Optional target. Saves when you leave the field.</p>
+            @for (error of incomeForm.plannedIncomeCents().errors(); track $index) {
+              <p class="field-error" role="alert">{{ error.message }}</p>
+            }
+          </div>
+        }
+        <p class="muted small">
+          Budgeted <span class="money">{{ totals().limit | money }}</span>
+          @if (budgetValue.plannedIncomeCents > 0) {
+            · <span class="money">{{ budgetValue.plannedIncomeCents - totals().limit | money }}</span> unassigned
+          }
+        </p>
+      </section>
+
+      <section class="card-deep stack" aria-labelledby="lifecycle-title">
+        <h2 id="lifecycle-title" class="small-title">
+          {{ closed() ? monthName(budgetValue.month) + ' is closed' : 'Close ' + monthName(budgetValue.month) }}
+        </h2>
+        @if (closed()) {
+          <p class="small">Income, spending and fund balances were settled into savings. Reopen to make corrections, then close again.</p>
+          <div>
+            <button type="button" class="btn" [disabled]="!budgetValue.canReopen || busy()" (click)="reopen()" aria-describedby="reopen-hint">
+              <app-icon name="unlock" />Reopen {{ monthName(budgetValue.month) }}
+            </button>
+          </div>
+          @if (!budgetValue.canReopen) {
+            <p id="reopen-hint" class="hint">Reopen {{ nextLabel() }} first. Months reopen newest-first.</p>
+          }
+        } @else {
+          <p class="small">{{ closeExplanation() }}</p>
+          <div>
+            <button type="button" class="btn btn-primary" [disabled]="!budgetValue.canClose || busy()" (click)="close()" aria-describedby="close-hint">
+              <app-icon name="lock" />Close {{ monthName(budgetValue.month) }}
+            </button>
+          </div>
+          @if (!budgetValue.canClose) {
+            <p id="close-hint" class="hint">{{ nextLabel() }} is closed. Reopen it before closing this month.</p>
+          }
+        }
+      </section>
+    </div>
+
+    <p class="savings-note" [class.has-deficit]="hasPayableDeficit()">
+      <app-icon name="savings" />
+      <span>
+        Savings available: <strong class="money">{{ budgetValue.savingsBalanceCents | money }}</strong>.
+        @if (hasPayableDeficit()) {
+          Funds that are over budget can be paid down from savings.
+        } @else {
+          Regular subcategories spend from savings; funds keep their own balance, and a fund deficit can be paid from savings.
+        }
+      </span>
+    </p>
+
+    <div class="table-wrap card">
+      <table class="table budget-table">
+        <caption class="visually-hidden">Budget lines for {{ label() }}</caption>
+        <thead>
+          <tr>
+            <th scope="col">Subcategory</th>
+            <th scope="col">Limit</th>
+            <th scope="col" class="end">Balance in</th>
+            <th scope="col" class="end">From savings</th>
+            <th scope="col" class="end">Spent</th>
+            <th scope="col" class="end">Remaining</th>
+          </tr>
+        </thead>
+        @for (group of budgetValue.categories; track group.categoryId) {
+          <tbody>
+            <tr class="group-row">
+              <th scope="rowgroup" colspan="6">
+                <span>{{ group.categoryName }}</span>
+              </th>
+            </tr>
+            @for (line of group.lines; track line.id) {
+              <tr
+                appBudgetLineRow
+                [line]="line"
+                [month]="budgetValue.month"
+                [readonly]="closed()"
+                [savingsBalanceCents]="budgetValue.savingsBalanceCents"
+                [busy]="busy()"
+                (updated)="onUpdated($event)"
+                (payDeficit)="payDeficit($event)"
+              ></tr>
+            }
+          </tbody>
+        } @empty {
+          <tbody>
+            <tr><td colspan="6" class="empty-cell">No expense subcategories to budget. Add some on the Categories page.</td></tr>
+          </tbody>
+        }
+        <tfoot>
+          <tr>
+            <th scope="row">Total</th>
+            <td class="money" data-label="Limit">{{ totals().limit | money }}</td>
+            <td class="end money" data-label="Balance in">{{ totals().carryIn | money }}</td>
+            <td class="end money" data-label="From savings">{{ totals().deficitPaid | money }}</td>
+            <td class="end money" data-label="Spent">{{ totals().spent | money }}</td>
+            <td class="end money" data-label="Remaining">{{ totals().remaining | money }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    @if (budgetValue.deficitPayments.length) {
+      <section class="card stack" aria-labelledby="deficit-payments-title">
+        <div class="row between">
+          <h2 id="deficit-payments-title" class="small-title">Deficits paid from savings</h2>
+          <p class="money total-paid">{{ budgetValue.deficitPaidCents | money }}</p>
+        </div>
+        <ul class="payments">
+          @for (payment of budgetValue.deficitPayments; track payment.id) {
+            <li>
+              <span>
+                <strong>{{ payment.subcategoryName ?? 'Removed subcategory' }}</strong>
+                <span class="muted"> · {{ payment.categoryName }} · {{ paidOn(payment) }}</span>
+              </span>
+              <span class="money">{{ payment.amountCents | money }}</span>
+              @if (!closed()) {
+                <button type="button" class="btn btn-sm btn-quiet" [disabled]="busy()" (click)="undoPayment(payment)">
+                  Undo<span class="visually-hidden"> {{ payment.amountCents | money }} payment for {{ payment.subcategoryName }}</span>
+                </button>
+              }
+            </li>
+          }
+        </ul>
+      </section>
+    }
+  } @else if (budget.isLoading()) {
+    <p class="loading" role="status">Loading budget…</p>
+  }
+</div>
+<app-confirm-dialog />

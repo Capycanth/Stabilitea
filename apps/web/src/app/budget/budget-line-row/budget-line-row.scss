@@ -1,0 +1,16 @@
+:host(.over) .remaining { color: var(--st-orange); font-weight: 600; }
+.name { font-weight: 500; }
+.fund { margin-left: 8px; font-size: 0.72rem; vertical-align: middle; }
+.limit { width: 160px; }
+.over-label { display: inline-flex; align-items: center; gap: 4px; }
+.deficit { color: var(--st-orange); }
+.remaining .over-label { justify-content: flex-end; }
+.pay { display: flex; margin: 6px 0 0 auto; font-weight: 600; color: var(--st-ink); }
+@media (max-width: 640px) {
+  :host { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; padding: 12px 4px; border-bottom: 1px solid var(--st-line); }
+  th, td { display: block; border: 0; padding: 0; text-align: left; }
+  .name, .limit { grid-column: 1 / -1; width: auto; }
+  .remaining .over-label { justify-content: flex-start; }
+  .pay { margin-left: 0; }
+  td.end[data-label]::before { content: attr(data-label); display: block; font-size: 0.72rem; font-weight: 600; color: var(--st-ink-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+}

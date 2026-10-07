@@ -1,0 +1,76 @@
+<div class="head">
+  <div>
+    <p class="eyebrow">Subcategory of {{ parent().name }}</p>
+    <h2>{{ subcategory().name }}</h2>
+  </div>
+  @if (subcategory().archivedAt) {
+    <span class="chip"><app-icon name="archive" [size]="13" />Archived</span>
+  }
+</div>
+
+<form class="stack" novalidate [formRoot]="subForm">
+  <div class="field">
+    <label for="subcategory-name">Name</label>
+    <input id="subcategory-name" class="input" type="text" autocomplete="off" [formField]="subForm.name" aria-describedby="subcategory-errors" />
+  </div>
+  @if (parent().kind === 'expense') {
+    <div class="field limit">
+      <label for="subcategory-limit">Default limit</label>
+      <app-money-input inputId="subcategory-limit" describedBy="subcategory-limit-hint subcategory-errors" [formField]="subForm.defaultLimitCents" />
+    </div>
+  }
+  <div class="field">
+    <label for="subcategory-parent">Category</label>
+    <select id="subcategory-parent" class="input" [formField]="subForm.categoryId">
+      @for (option of moveTargets(); track option.id) {
+        <option [value]="'' + option.id">{{ option.name }}</option>
+      }
+    </select>
+  </div>
+  <div id="subcategory-errors">
+    @for (error of allErrors(); track $index) {
+      <p class="field-error" role="alert">{{ error }}</p>
+    }
+  </div>
+  <div>
+    <button type="submit" class="btn btn-primary" [disabled]="subForm().submitting() || !dirty()">Save changes</button>
+  </div>
+</form>
+
+@if (parent().kind === 'expense') {
+  <div class="field">
+    <label class="checkbox">
+      <input type="checkbox" [checked]="subcategory().fund" [disabled]="busy()" (change)="toggleFund($event)" aria-describedby="fund-hint" />
+      Fund (keeps its own balance)
+    </label>
+    <p id="fund-hint" class="hint">
+      @if (subcategory().fund) {
+        Each month its limit moves from savings into this fund, and whatever is left (or overspent) carries into next
+        month. A deficit can be paid from savings on the Budget page.
+      } @else {
+        Spending comes straight out of savings when a month closes; the limit is a target.
+      }
+      Changes apply to open months only.
+    </p>
+  </div>
+}
+
+<div class="row">
+  <button type="button" class="btn btn-sm" [disabled]="busy() || index() === 0" (click)="move(-1)">
+    <app-icon name="arrow-up" [size]="16" />Move up
+  </button>
+  <button type="button" class="btn btn-sm" [disabled]="busy() || index() >= count() - 1" (click)="move(1)">
+    <app-icon name="arrow-down" [size]="16" />Move down
+  </button>
+  <button type="button" class="btn btn-sm" [disabled]="busy()" (click)="toggleArchived()">
+    <app-icon name="archive" [size]="16" />{{ subcategory().archivedAt ? 'Unarchive' : 'Archive' }}
+  </button>
+</div>
+<p class="hint">
+  @if (subcategory().transactionCount > 0) {
+    {{ subcategory().transactionCount }} transaction{{ subcategory().transactionCount === 1 ? '' : 's' }} recorded.
+    Subcategories with transactions can be archived but not deleted.
+  } @else {
+    Archived subcategories are hidden from new budgets and the transaction form.
+  }
+</p>

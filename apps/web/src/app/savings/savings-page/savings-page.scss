@@ -1,0 +1,26 @@
+.balance { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 20px 24px; border-radius: 12px; background: #fce9dc; border: 1px solid var(--st-orange-soft); color: var(--st-ink); }
+.balance app-icon { color: var(--st-orange); }
+.balance-label { font-size: 0.9rem; font-weight: 600; color: var(--st-ink-muted); }
+.balance-value { font-size: 2.2rem; font-weight: 700; letter-spacing: -0.01em; }
+.balance-note { flex: 1 1 260px; font-size: 0.9rem; color: var(--st-ink-muted); }
+.negative { color: var(--st-orange); }
+.small { font-size: 0.82rem; }
+.funds { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.fund { display: grid; gap: 2px; }
+.fund-name { font-weight: 600; }
+.fund-balance { display: inline-flex; align-items: center; gap: 4px; font-size: 1.35rem; font-weight: 650; }
+.month { padding: 16px 20px; display: grid; gap: 10px; }
+.month-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.total { font-weight: 650; color: var(--st-green); }
+.total.negative { color: var(--st-orange); }
+.flows { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px 16px; margin: 0; }
+.flows dt { font-size: 0.78rem; font-weight: 600; color: var(--st-ink-muted); }
+.flows dd { margin: 0; font-weight: 600; }
+details summary { cursor: pointer; font-size: 0.88rem; color: var(--st-ink-muted); font-weight: 600; padding: 4px 0; }
+details summary:focus-visible { outline: 2px solid var(--st-green); outline-offset: 2px; border-radius: 4px; }
+.table tr:last-child td { border-bottom: 0; }
+@media (max-width: 560px) {
+  .month { padding: 12px; }
+  .table th, .table td { padding: 8px 6px; }
+  .table .chip { white-space: normal; }
+}

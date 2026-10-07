@@ -1,0 +1,108 @@
+<div class="page">
+  <div class="page-header">
+    <div>
+      <p class="eyebrow">Setup</p>
+      <h1>Categories</h1>
+    </div>
+    <label class="checkbox">
+      <input type="checkbox" [checked]="showArchived()" (change)="toggleArchived($event)" />
+      Show archived
+    </label>
+  </div>
+
+  <app-new-category-form (created)="onCreated($event)" />
+
+  @if (categories.error() && !categories.hasValue()) {
+    <p class="form-error" role="alert"><app-icon name="warning" />{{ loadError() }}</p>
+  }
+
+  @if (categories.hasValue()) {
+    <div class="split">
+      <div class="card tree-card">
+        <p id="tree-label" class="label">Categories and subcategories</p>
+        <p class="hint">Use arrow keys to move, Right/Left to expand or collapse, and select an item to edit it.</p>
+        @if (visible().length) {
+          <ul ngTree #tree="ngTree" class="tree" aria-labelledby="tree-label" selectionMode="follow" [(value)]="selection">
+            @for (category of visible(); track category.id) {
+              <li
+                ngTreeItem
+                #categoryItem="ngTreeItem"
+                [parent]="tree"
+                [value]="'c-' + category.id"
+                [label]="category.name"
+                [expanded]="true"
+                class="node"
+              >
+                <span class="node-row">
+                  <span class="node-name">{{ category.name }}</span>
+                  @if (category.kind === 'income') {
+                    <span class="chip">Income</span>
+                  }
+                  @if (category.archivedAt) {
+                    <span class="chip">Archived</span>
+                  }
+                </span>
+                @if (category.subcategories.length) {
+                  <ul role="group" class="group">
+                    <ng-template ngTreeItemGroup [ownedBy]="categoryItem" #group="ngTreeItemGroup">
+                      @for (sub of category.subcategories; track sub.id) {
+                        <li ngTreeItem [parent]="group" [value]="'s-' + sub.id" [label]="sub.name" class="node leaf">
+                          <span class="node-row">
+                            <span class="node-name">{{ sub.name }}</span>
+                            @if (category.kind === 'expense') {
+                              <span class="money muted small">{{ sub.defaultLimitCents | money }}</span>
+                            }
+                            @if (sub.fund) {
+                              <span class="chip chip-green">Fund</span>
+                            }
+                            @if (sub.archivedAt) {
+                              <span class="chip">Archived</span>
+                            }
+                          </span>
+                        </li>
+                      }
+                    </ng-template>
+                  </ul>
+                }
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="empty">No categories yet. Add one above.</p>
+        }
+      </div>
+
+      <section class="card details" aria-live="polite" aria-label="Selected item">
+        @switch (selected()?.kind) {
+          @case ('category') {
+            @let s = categorySelection();
+            @if (s) {
+              <app-category-editor [category]="s.category" [index]="s.index" [count]="s.count" (changed)="categories.reload()" />
+            }
+          }
+          @case ('subcategory') {
+            @let s = subcategorySelection();
+            @if (s) {
+              <app-subcategory-editor
+                [subcategory]="s.subcategory"
+                [parent]="s.parent"
+                [categories]="all()"
+                [index]="s.index"
+                [count]="s.count"
+                (changed)="categories.reload()"
+              />
+            }
+          }
+          @default {
+            <div class="placeholder">
+              <app-icon name="categories" [size]="28" />
+              <p>Select a category or subcategory to rename it, make a subcategory a fund, reorder, or archive it.</p>
+            </div>
+          }
+        }
+      </section>
+    </div>
+  } @else if (categories.isLoading()) {
+    <p class="loading" role="status">Loading categories…</p>
+  }
+</div>

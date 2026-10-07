@@ -1,0 +1,60 @@
+<th scope="row" class="name">
+  {{ line().subcategoryName }}
+  @if (line().fund) {
+    <span class="chip chip-green fund"><app-icon name="rollover" [size]="12" />Fund</span>
+  }
+</th>
+<td class="limit" data-label="Limit">
+  @if (readonly()) {
+    <span class="money">{{ line().limitCents | money }}</span>
+  } @else {
+    <app-money-input
+      [inputId]="inputId()"
+      [ariaLabel]="'Limit for ' + line().subcategoryName"
+      [describedBy]="errorId()"
+      [formField]="lineForm.limitCents"
+    />
+    <div [id]="errorId()">
+      @if (lineForm.limitCents().errors()[0]; as error) {
+        <p class="field-error" role="alert">{{ error.message }}</p>
+      }
+      @if (saveError(); as message) {
+        <p class="field-error" role="alert">{{ message }}</p>
+      }
+    </div>
+  }
+</td>
+<td class="end money" data-label="Balance in" [class.deficit]="line().carryInCents < 0">
+  @if (line().fund || line().carryInCents !== 0) {
+    {{ line().carryInCents | money }}
+    @if (line().carryInCents < 0) {
+      <span class="visually-hidden">(fund deficit carried from last month)</span>
+    }
+  } @else {
+    <span class="muted" aria-label="Not a fund">—</span>
+  }
+</td>
+<td class="end money" data-label="From savings">
+  @if (line().deficitPaidCents > 0) {
+    {{ line().deficitPaidCents | money }}
+  } @else {
+    <span class="muted" aria-label="None">—</span>
+  }
+</td>
+<td class="end money" data-label="Spent">{{ line().spentCents | money }}</td>
+<td class="end money remaining" data-label="Remaining">
+  @if (line().remainingCents < 0) {
+    <span class="over-label"><app-icon name="warning" [size]="14" />Over by {{ -line().remainingCents | money }}</span>
+    @if (canPayDeficit()) {
+      <button type="button" class="btn btn-sm pay" [disabled]="busy()" (click)="payDeficit.emit(line())">
+        <app-icon name="piggy-out" [size]="15" />Pay from savings
+        <span class="visually-hidden">for {{ line().subcategoryName }}</span>
+      </button>
+    }
+  } @else {
+    {{ line().remainingCents | money }}
+  }
+  @if (saving()) {
+    <span class="visually-hidden" role="status">Saving</span>
+  }
+</td>

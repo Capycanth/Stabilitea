@@ -1,0 +1,54 @@
+<a class="skip-link" href="#main" (click)="focusMain($event)">Skip to content</a>
+<div class="layout">
+  <aside class="sidebar">
+    <a class="brand" [routerLink]="['/', selected.month()]">
+      <app-teacup-logo />
+      <span class="wordmark">Stabilitea</span>
+    </a>
+    <nav aria-label="Main">
+      <ul>
+        @for (item of nav(); track item.label) {
+          <li>
+            <a
+              [routerLink]="item.link"
+              routerLinkActive="active"
+              ariaCurrentWhenActive="page"
+              [routerLinkActiveOptions]="{ exact: item.exact }"
+            >
+              <app-icon [name]="item.icon" />
+              <span>{{ item.label }}</span>
+            </a>
+          </li>
+        }
+      </ul>
+    </nav>
+    <a class="backup" href="/api/export" download="stabilitea-export.json">
+      <app-icon name="download" [size]="16" />
+      <span>Download backup</span>
+    </a>
+  </aside>
+
+  <div class="content">
+    @if (selected.inMonthRoute()) {
+      <header class="topbar">
+        <app-month-switcher />
+      </header>
+    }
+    <main id="main" #main tabindex="-1">
+      <router-outlet />
+    </main>
+  </div>
+</div>
+
+<div class="toast-region" aria-live="polite" role="status">
+  @if (notifier.notice(); as notice) {
+    <div class="toast" [class.error]="notice.tone === 'error'">
+      <app-icon [name]="notice.tone === 'error' ? 'warning' : 'check'" />
+      <span>{{ notice.text }}</span>
+      <button type="button" class="btn btn-quiet btn-sm btn-icon" (click)="notifier.dismiss()">
+        <app-icon name="close" [size]="16" />
+        <span class="visually-hidden">Dismiss</span>
+      </button>
+    </div>
+  }
+</div>

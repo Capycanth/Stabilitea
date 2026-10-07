@@ -1,0 +1,25 @@
+.top { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.small-title { font-size: 1.05rem; }
+.small { font-size: 0.9rem; }
+.big { font-size: 1.5rem; font-weight: 650; }
+.table-wrap { padding: 4px 8px; overflow-x: auto; }
+.group-row th { padding-top: 18px; background: transparent; font-family: var(--st-font-heading); font-variation-settings: 'SOFT' 100; font-size: 1.05rem; font-weight: 560; }
+.group-row th span:first-child { margin-right: 10px; }
+tfoot th, tfoot td { font-weight: 650; border-bottom: 0; }
+.empty-cell { text-align: center; color: var(--st-ink-muted); padding: 24px; }
+.savings-note { display: flex; gap: 10px; align-items: center; font-size: 0.9rem; color: var(--st-ink-muted); }
+.savings-note strong { color: var(--st-ink); }
+.between { justify-content: space-between; }
+.total-paid { font-weight: 650; }
+.payments { list-style: none; margin: 0; padding: 0; }
+.payments li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--st-line); }
+.group-row .chip { font-family: var(--st-font-body); font-variation-settings: normal; }
+@media (max-width: 640px) {
+  .table-wrap { padding: 0 4px; }
+  .budget-table thead { display: none; }
+  .budget-table .group-row th { display: block; padding: 18px 4px 6px; }
+  .budget-table tfoot tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; padding: 12px 4px; }
+  .budget-table tfoot th, .budget-table tfoot td { display: block; padding: 0; text-align: left; }
+  .budget-table tfoot th { grid-column: 1 / -1; }
+  .budget-table tfoot td::before { content: attr(data-label); display: block; font-size: 0.72rem; font-weight: 600; color: var(--st-ink-muted); text-transform: uppercase; }
+}

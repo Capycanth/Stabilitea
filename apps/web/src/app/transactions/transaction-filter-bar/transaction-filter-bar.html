@@ -1,0 +1,54 @@
+<div class="filter-group">
+  <span class="label" id="filter-type-label">Type</span>
+  <ul
+    ngListbox
+    class="filter-listbox"
+    orientation="horizontal"
+    selectionMode="follow"
+    aria-labelledby="filter-type-label"
+    [value]="typeValue()"
+    (valueChange)="selectType($event)"
+  >
+    <li ngOption value="all">All</li>
+    <li ngOption value="expense">Expenses</li>
+    <li ngOption value="income">Income</li>
+  </ul>
+</div>
+
+<div class="filter-group">
+  <span class="label" id="filter-category-label">Category</span>
+  <ul
+    ngListbox
+    class="filter-listbox"
+    orientation="horizontal"
+    selectionMode="follow"
+    aria-labelledby="filter-category-label"
+    [value]="categoryValue()"
+    (valueChange)="selectCategory($event)"
+  >
+    <li ngOption [value]="0" label="All">All</li>
+    @for (category of visibleCategories(); track category.id) {
+      <li ngOption [value]="category.id" [label]="category.name">{{ category.name }}</li>
+    }
+  </ul>
+</div>
+
+@if (selectedCategory(); as category) {
+  <div class="filter-group">
+    <span class="label" id="filter-subcategory-label">{{ category.name }}</span>
+    <ul
+      ngListbox
+      class="filter-listbox"
+      orientation="horizontal"
+      selectionMode="follow"
+      aria-labelledby="filter-subcategory-label"
+      [value]="subcategoryValue()"
+      (valueChange)="selectSubcategory($event)"
+    >
+      <li ngOption [value]="0" label="All">All</li>
+      @for (sub of category.subcategories; track sub.id) {
+        <li ngOption [value]="sub.id" [label]="sub.name">{{ sub.name }}</li>
+      }
+    </ul>
+  </div>
+}

@@ -1,0 +1,13 @@
+.banner { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 14px 18px; border-radius: 12px; background: #fbe6d6; border: 1px solid #f3cdb2; color: #5e2b10; }
+.banner-text { flex: 1 1 260px; display: grid; gap: 2px; }
+.banner h2 { font-family: var(--st-font-body); font-size: 1rem; font-weight: 650; color: inherit; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.stat { display: grid; gap: 2px; }
+.stat-label { font-size: 0.85rem; font-weight: 600; color: var(--st-ink-muted); }
+.stat-value { font-size: 1.75rem; font-weight: 650; letter-spacing: -0.01em; }
+.stat-sub { display: flex; align-items: center; gap: 4px; font-size: 0.85rem; }
+.income { color: var(--st-green); }
+.negative { color: var(--st-orange); }
+.between { justify-content: space-between; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.grid .empty { grid-column: 1 / -1; }
