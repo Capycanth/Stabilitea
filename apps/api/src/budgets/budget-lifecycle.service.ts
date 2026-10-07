@@ -4,7 +4,7 @@ import { conflict, monthClosed, notFound } from '../common/errors.js';
 import { type Db, PrismaService } from '../prisma/prisma.service.js';
 
 export interface LineOutcome {
-  subcategoryId: number;
+  categoryId: number;
   /** available − spent for the line. For a fund, its balance at the end of the month. */
   remainingCents: number;
   /**
@@ -35,7 +35,7 @@ export function lineAvailable(line: { limitCents: number; carryInCents: number; 
 }
 
 interface LineLike {
-  subcategoryId: number;
+  categoryId: number;
   limitCents: number;
   carryInCents: number;
   deficitPaidCents: number;
@@ -44,13 +44,13 @@ interface LineLike {
 
 export interface SavingsMove {
   kind: typeof INCOME | typeof SPENDING | typeof FUND_CONTRIBUTION | typeof FUND_RELEASE;
-  subcategoryId: number;
+  categoryId: number;
   amountCents: number;
 }
 
 export interface ClosePlan {
   moves: SavingsMove[];
-  /** subcategoryId → carry-in for next month's fund line. */
+  /** categoryId → carry-in for next month's fund line. */
   carries: Map<number, number>;
   outcomes: LineOutcome[];
 }
@@ -58,7 +58,7 @@ export interface ClosePlan {
 /**
  * Pure close calculation. Savings changes by income − regular spending − fund contributions; each fund's balance
  * (limit + carry-in + deficit paid − spent) carries into next month's fund line, or is released to savings when there
- * is none. A regular line that still holds a carry-in or deficit payment (its subcategory was switched from a fund
+ * is none. A regular line that still holds a carry-in or deficit payment (its category was switched from a fund
  * this month) releases that money too, so nothing is lost.
  *
  * Invariant: savings + Σ fund balances changes by exactly income − all spending.
@@ -73,36 +73,36 @@ export function planClose(
   const carries = new Map<number, number>();
   const outcomes: LineOutcome[] = [];
 
-  for (const [subcategoryId, amountCents] of income) {
-    if (amountCents !== 0) moves.push({ kind: INCOME, subcategoryId, amountCents });
+  for (const [categoryId, amountCents] of income) {
+    if (amountCents !== 0) moves.push({ kind: INCOME, categoryId, amountCents });
   }
 
-  const lineBySub = new Map(lines.map((line) => [line.subcategoryId, line]));
-  for (const [subcategoryId, amount] of spent) {
-    if (amount !== 0 && !lineBySub.get(subcategoryId)?.fund) {
-      moves.push({ kind: SPENDING, subcategoryId, amountCents: -amount });
+  const lineBySub = new Map(lines.map((line) => [line.categoryId, line]));
+  for (const [categoryId, amount] of spent) {
+    if (amount !== 0 && !lineBySub.get(categoryId)?.fund) {
+      moves.push({ kind: SPENDING, categoryId, amountCents: -amount });
     }
   }
 
   for (const line of lines) {
-    const remainingCents = lineAvailable(line) - (spent.get(line.subcategoryId) ?? 0);
+    const remainingCents = lineAvailable(line) - (spent.get(line.categoryId) ?? 0);
     if (!line.fund) {
       const held = line.carryInCents + line.deficitPaidCents;
-      if (held !== 0) moves.push({ kind: FUND_RELEASE, subcategoryId: line.subcategoryId, amountCents: held });
-      outcomes.push({ subcategoryId: line.subcategoryId, remainingCents, result: 'regular' });
+      if (held !== 0) moves.push({ kind: FUND_RELEASE, categoryId: line.categoryId, amountCents: held });
+      outcomes.push({ categoryId: line.categoryId, remainingCents, result: 'regular' });
       continue;
     }
     if (line.limitCents !== 0) {
-      moves.push({ kind: FUND_CONTRIBUTION, subcategoryId: line.subcategoryId, amountCents: -line.limitCents });
+      moves.push({ kind: FUND_CONTRIBUTION, categoryId: line.categoryId, amountCents: -line.limitCents });
     }
-    if (nextFundLines.has(line.subcategoryId)) {
-      carries.set(line.subcategoryId, remainingCents);
-      outcomes.push({ subcategoryId: line.subcategoryId, remainingCents, result: 'carried' });
+    if (nextFundLines.has(line.categoryId)) {
+      carries.set(line.categoryId, remainingCents);
+      outcomes.push({ categoryId: line.categoryId, remainingCents, result: 'carried' });
     } else {
       if (remainingCents !== 0) {
-        moves.push({ kind: FUND_RELEASE, subcategoryId: line.subcategoryId, amountCents: remainingCents });
+        moves.push({ kind: FUND_RELEASE, categoryId: line.categoryId, amountCents: remainingCents });
       }
-      outcomes.push({ subcategoryId: line.subcategoryId, remainingCents, result: 'released' });
+      outcomes.push({ categoryId: line.categoryId, remainingCents, result: 'released' });
     }
   }
 
@@ -131,10 +131,10 @@ export class BudgetLifecycleService {
       orderBy: { month: 'desc' },
       include: { lines: true },
     });
-    const sourceLimits = new Map(source?.lines.map((line) => [line.subcategoryId, line.limitCents]) ?? []);
+    const sourceLimits = new Map(source?.lines.map((line) => [line.categoryId, line.limitCents]) ?? []);
 
-    const subcategories = await db.subcategory.findMany({
-      where: { archivedAt: null, category: { archivedAt: null, kind: 'expense' } },
+    const categories = await db.category.findMany({
+      where: { archivedAt: null, group: { archivedAt: null, kind: 'expense' } },
     });
 
     await db.budgetMonth.create({
@@ -143,11 +143,11 @@ export class BudgetLifecycleService {
         status: 'open',
         plannedIncomeCents: source?.plannedIncomeCents ?? 0,
         lines: {
-          create: subcategories.map((sub) => ({
-            subcategoryId: sub.id,
-            limitCents: sourceLimits.get(sub.id) ?? sub.defaultLimitCents,
+          create: categories.map((category) => ({
+            categoryId: category.id,
+            limitCents: sourceLimits.get(category.id) ?? category.defaultLimitCents,
             carryInCents: 0,
-            fund: sub.fund,
+            fund: category.fund,
           })),
         },
       },
@@ -160,20 +160,20 @@ export class BudgetLifecycleService {
     if (row?.status === 'closed') throw monthClosed(month);
   }
 
-  /** Transaction totals per subcategory for a month and type. */
-  async totalsBySubcategory(db: Db, month: string, type: 'income' | 'expense'): Promise<Map<number, number>> {
+  /** Transaction totals per category for a month and type. */
+  async totalsByCategory(db: Db, month: string, type: 'income' | 'expense'): Promise<Map<number, number>> {
     const { first, last } = monthBounds(month);
     const rows = await db.transaction.groupBy({
-      by: ['subcategoryId'],
+      by: ['categoryId'],
       where: { type, date: { gte: first, lte: last } },
       _sum: { amountCents: true },
     });
-    return new Map(rows.map((row) => [row.subcategoryId, row._sum.amountCents ?? 0]));
+    return new Map(rows.map((row) => [row.categoryId, row._sum.amountCents ?? 0]));
   }
 
-  /** Expense spending per subcategory for a month. */
-  spentBySubcategory(db: Db, month: string): Promise<Map<number, number>> {
-    return this.totalsBySubcategory(db, month, 'expense');
+  /** Expense spending per category for a month. */
+  spentByCategory(db: Db, month: string): Promise<Map<number, number>> {
+    return this.totalsByCategory(db, month, 'expense');
   }
 
   async savingsBalance(db: Db): Promise<number> {
@@ -209,15 +209,15 @@ export class BudgetLifecycleService {
 
       const plan = planClose(
         current.lines,
-        await this.totalsBySubcategory(tx, month, 'expense'),
-        await this.totalsBySubcategory(tx, month, 'income'),
-        new Set(nextMonth.lines.filter((line) => line.fund).map((line) => line.subcategoryId)),
+        await this.totalsByCategory(tx, month, 'expense'),
+        await this.totalsByCategory(tx, month, 'income'),
+        new Set(nextMonth.lines.filter((line) => line.fund).map((line) => line.categoryId)),
       );
 
-      const nextIds = new Map(nextMonth.lines.map((line) => [line.subcategoryId, line.id]));
-      for (const [subcategoryId, carryInCents] of plan.carries) {
+      const nextIds = new Map(nextMonth.lines.map((line) => [line.categoryId, line.id]));
+      for (const [categoryId, carryInCents] of plan.carries) {
         if (carryInCents !== 0) {
-          await tx.budgetLine.update({ where: { id: nextIds.get(subcategoryId)! }, data: { carryInCents } });
+          await tx.budgetLine.update({ where: { id: nextIds.get(categoryId)! }, data: { carryInCents } });
         }
       }
       if (plan.moves.length) {
@@ -260,16 +260,16 @@ export class BudgetLifecycleService {
    */
   payDeficit(month: string, lineId: number, now: Date = new Date()): Promise<DeficitPaymentResult> {
     return this.prisma.$transaction(async (tx) => {
-      const line = await tx.budgetLine.findUnique({ where: { id: lineId }, include: { subcategory: true } });
+      const line = await tx.budgetLine.findUnique({ where: { id: lineId }, include: { category: true } });
       if (!line || line.month !== month) throw notFound(`Budget line ${lineId} not found in ${month}`);
       await this.assertOpen(tx, month);
       if (!line.fund) {
-        throw conflict(`${line.subcategory.name} isn't a fund, so its spending already comes out of savings.`);
+        throw conflict(`${line.category.name} isn't a fund, so its spending already comes out of savings.`);
       }
 
-      const spent = (await this.spentBySubcategory(tx, month)).get(line.subcategoryId) ?? 0;
+      const spent = (await this.spentByCategory(tx, month)).get(line.categoryId) ?? 0;
       const deficit = spent - lineAvailable(line);
-      if (deficit <= 0) throw conflict(`${line.subcategory.name} has no deficit to pay.`);
+      if (deficit <= 0) throw conflict(`${line.category.name} has no deficit to pay.`);
 
       const balance = await this.savingsBalance(tx);
       if (balance <= 0) throw conflict('There are no savings available to pay this deficit.');
@@ -279,7 +279,7 @@ export class BudgetLifecycleService {
         data: {
           kind: DEFICIT_PAYMENT,
           month,
-          subcategoryId: line.subcategoryId,
+          categoryId: line.categoryId,
           budgetLineId: line.id,
           amountCents: -paidCents,
           createdAt: now,
@@ -308,25 +308,25 @@ export class BudgetLifecycleService {
     });
   }
 
-  /** Propagate a subcategory's fund flag to its lines in open months only. */
-  async applyFundToOpenMonths(db: Db, subcategoryId: number, fund: boolean): Promise<void> {
+  /** Propagate a category's fund flag to its lines in open months only. */
+  async applyFundToOpenMonths(db: Db, categoryId: number, fund: boolean): Promise<void> {
     await db.budgetLine.updateMany({
-      where: { subcategoryId, budgetMonth: { status: 'open' } },
+      where: { categoryId, budgetMonth: { status: 'open' } },
       data: { fund },
     });
   }
 
-  /** Give a newly active expense subcategory a line (at its default limit) in every open month. */
-  async addLineToOpenMonths(db: Db, subcategoryId: number): Promise<void> {
-    const sub = await db.subcategory.findUniqueOrThrow({ where: { id: subcategoryId }, include: { category: true } });
-    if (sub.category.kind !== 'expense' || sub.archivedAt || sub.category.archivedAt) return;
+  /** Give a newly active expense category a line (at its default limit) in every open month. */
+  async addLineToOpenMonths(db: Db, categoryId: number): Promise<void> {
+    const category = await db.category.findUniqueOrThrow({ where: { id: categoryId }, include: { group: true } });
+    if (category.group.kind !== 'expense' || category.archivedAt || category.group.archivedAt) return;
     const openMonths = await db.budgetMonth.findMany({
-      where: { status: 'open', lines: { none: { subcategoryId } } },
+      where: { status: 'open', lines: { none: { categoryId } } },
       select: { month: true },
     });
     for (const { month } of openMonths) {
       await db.budgetLine.create({
-        data: { month, subcategoryId, limitCents: sub.defaultLimitCents, carryInCents: 0, fund: sub.fund },
+        data: { month, categoryId, limitCents: category.defaultLimitCents, carryInCents: 0, fund: category.fund },
       });
     }
   }

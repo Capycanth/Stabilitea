@@ -10,9 +10,9 @@ export class ExportController {
   @Get()
   @Header('Content-Disposition', 'attachment; filename="stabilitea-export.json"')
   async export(): Promise<ExportDto> {
-    const [categories, subcategories, budgetMonths, budgetLines, transactions, savingsEntries] = await Promise.all([
+    const [groups, categories, budgetMonths, budgetLines, transactions, savingsEntries] = await Promise.all([
+      this.prisma.group.findMany({ orderBy: { id: 'asc' } }),
       this.prisma.category.findMany({ orderBy: { id: 'asc' } }),
-      this.prisma.subcategory.findMany({ orderBy: { id: 'asc' } }),
       this.prisma.budgetMonth.findMany({ orderBy: { month: 'asc' } }),
       this.prisma.budgetLine.findMany({ orderBy: { id: 'asc' } }),
       this.prisma.transaction.findMany({ orderBy: { id: 'asc' } }),
@@ -22,8 +22,8 @@ export class ExportController {
       app: 'stabilitea',
       schemaVersion: 2,
       exportedAt: new Date().toISOString(),
+      groups,
       categories,
-      subcategories,
       budgetMonths,
       budgetLines,
       transactions,

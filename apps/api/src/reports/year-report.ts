@@ -8,8 +8,8 @@ export type CloseOutcome = 'regular' | 'carried' | 'carried-deficit' | 'released
 
 export interface LineReport {
   month: string;
+  groupName: string;
   categoryName: string;
-  subcategoryName: string;
   fund: boolean;
   limitCents: number;
   carryInCents: number;
@@ -41,8 +41,8 @@ export interface MonthReport {
   lines: LineReport[];
 }
 
-export interface CategoryYearReport {
-  categoryName: string;
+export interface GroupYearReport {
+  groupName: string;
   budgetedCents: number;
   spentCents: number;
   deficitPaidCents: number;
@@ -52,7 +52,7 @@ export interface YearReport {
   year: number;
   generatedAt: Date;
   months: MonthReport[];
-  categories: CategoryYearReport[];
+  groups: GroupYearReport[];
   totals: {
     plannedIncomeCents: number;
     incomeCents: number;
@@ -101,30 +101,30 @@ export class YearReportBuilder {
     const lastMonth = `${year}-12`;
     const monthKeys = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`);
 
-    const [budgetMonths, transactions, savingsBefore, entries, subcategories] = await Promise.all([
+    const [budgetMonths, transactions, savingsBefore, entries, categories] = await Promise.all([
       this.prisma.budgetMonth.findMany({
         where: { month: { gte: firstMonth, lte: lastMonth } },
         include: { lines: true },
       }),
       this.prisma.transaction.findMany({
         where: { date: { gte: monthBounds(firstMonth).first, lte: monthBounds(lastMonth).last } },
-        select: { date: true, type: true, amountCents: true, subcategoryId: true },
+        select: { date: true, type: true, amountCents: true, categoryId: true },
       }),
       this.prisma.savingsEntry.aggregate({ where: { month: { lt: firstMonth } }, _sum: { amountCents: true } }),
       this.prisma.savingsEntry.findMany({ where: { month: { gte: firstMonth, lte: lastMonth } } }),
-      this.prisma.subcategory.findMany({ include: { category: true } }),
+      this.prisma.category.findMany({ include: { group: true } }),
     ]);
 
-    const subById = new Map(subcategories.map((s) => [s.id, s]));
-    const sortKey = (subcategoryId: number) => {
-      const sub = subById.get(subcategoryId);
-      return sub ? [sub.category.sortOrder, sub.category.id, sub.sortOrder, sub.id] : [Infinity, 0, 0, subcategoryId];
+    const subById = new Map(categories.map((s) => [s.id, s]));
+    const sortKey = (categoryId: number) => {
+      const category = subById.get(categoryId);
+      return category ? [category.group.sortOrder, category.group.id, category.sortOrder, category.id] : [Infinity, 0, 0, categoryId];
     };
     const byMonth = new Map(budgetMonths.map((m) => [m.month, m]));
 
     let balance = savingsBefore._sum.amountCents ?? 0;
     const savingsBalanceStartCents = balance;
-    const categoryTotals = new Map<number, CategoryYearReport & { sort: number[] }>();
+    const groupTotals = new Map<number, GroupYearReport & { sort: number[] }>();
     let deficitPaymentCount = 0;
 
     const months: MonthReport[] = monthKeys.map((month) => {
@@ -134,13 +134,13 @@ export class YearReportBuilder {
       const incomeCents = monthTx.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amountCents, 0);
       const spent = new Map<number, number>();
       for (const t of monthTx) {
-        if (t.type === 'expense') spent.set(t.subcategoryId, (spent.get(t.subcategoryId) ?? 0) + t.amountCents);
+        if (t.type === 'expense') spent.set(t.categoryId, (spent.get(t.categoryId) ?? 0) + t.amountCents);
       }
       const expenseCents = [...spent.values()].reduce((sum, v) => sum + v, 0);
 
       const monthEntries = entries.filter((e) => e.month === month);
       const kindTotal = (kind: string) => monthEntries.filter((e) => e.kind === kind).reduce((sum, e) => sum + e.amountCents, 0);
-      const released = new Set(monthEntries.filter((e) => e.kind === FUND_RELEASE).map((e) => e.subcategoryId));
+      const released = new Set(monthEntries.filter((e) => e.kind === FUND_RELEASE).map((e) => e.categoryId));
       const payments = monthEntries.filter((e) => e.kind === DEFICIT_PAYMENT);
       deficitPaymentCount += payments.length;
       const savingsChangeCents = monthEntries.reduce((sum, e) => sum + e.amountCents, 0);
@@ -150,38 +150,38 @@ export class YearReportBuilder {
         ...(budget?.lines ?? []),
         // Spending without a budget line this month still shows up.
         ...[...spent.keys()]
-          .filter((id) => !budget?.lines.some((l) => l.subcategoryId === id))
-          .map((id) => ({ subcategoryId: id, limitCents: 0, carryInCents: 0, deficitPaidCents: 0, fund: false })),
+          .filter((id) => !budget?.lines.some((l) => l.categoryId === id))
+          .map((id) => ({ categoryId: id, limitCents: 0, carryInCents: 0, deficitPaidCents: 0, fund: false })),
       ].sort((a, b) => {
-        const [ka, kb] = [sortKey(a.subcategoryId), sortKey(b.subcategoryId)];
+        const [ka, kb] = [sortKey(a.categoryId), sortKey(b.categoryId)];
         for (let i = 0; i < ka.length; i++) if (ka[i] !== kb[i]) return ka[i]! - kb[i]!;
         return 0;
       });
 
       const lines: LineReport[] = lineSources.map((line) => {
-        const sub = subById.get(line.subcategoryId);
+        const category = subById.get(line.categoryId);
         const availableCents = lineAvailable(line);
-        const spentCents = spent.get(line.subcategoryId) ?? 0;
+        const spentCents = spent.get(line.categoryId) ?? 0;
         const remainingCents = availableCents - spentCents;
 
-        if (sub) {
-          const total = categoryTotals.get(sub.categoryId) ?? {
-            categoryName: sub.category.name,
+        if (category) {
+          const total = groupTotals.get(category.groupId) ?? {
+            groupName: category.group.name,
             budgetedCents: 0,
             spentCents: 0,
             deficitPaidCents: 0,
-            sort: [sub.category.sortOrder, sub.categoryId],
+            sort: [category.group.sortOrder, category.groupId],
           };
           total.budgetedCents += line.limitCents;
           total.spentCents += spentCents;
           total.deficitPaidCents += line.deficitPaidCents;
-          categoryTotals.set(sub.categoryId, total);
+          groupTotals.set(category.groupId, total);
         }
 
         return {
           month,
-          categoryName: sub?.category.name ?? 'Unknown',
-          subcategoryName: sub?.name ?? `#${line.subcategoryId}`,
+          groupName: category?.group.name ?? 'Unknown',
+          categoryName: category?.name ?? `#${line.categoryId}`,
           fund: line.fund,
           limitCents: line.limitCents,
           carryInCents: line.carryInCents,
@@ -189,7 +189,7 @@ export class YearReportBuilder {
           availableCents,
           spentCents,
           remainingCents,
-          outcome: outcomeFor(status, line.fund, released.has(line.subcategoryId), remainingCents),
+          outcome: outcomeFor(status, line.fund, released.has(line.categoryId), remainingCents),
         };
       });
 
@@ -215,7 +215,7 @@ export class YearReportBuilder {
       year,
       generatedAt,
       months,
-      categories: [...categoryTotals.values()]
+      groups: [...groupTotals.values()]
         .sort((a, b) => a.sort[0]! - b.sort[0]! || a.sort[1]! - b.sort[1]!)
         .map(({ sort: _sort, ...rest }) => rest),
       totals: {

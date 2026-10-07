@@ -8,8 +8,8 @@ import { BudgetLineRow } from './budget-line-row';
 const line: BudgetLineDto = {
   id: 7,
   month: '2026-09',
-  subcategoryId: 3,
-  subcategoryName: 'Groceries',
+  categoryId: 3,
+  categoryName: 'Groceries',
   limitCents: 50_000,
   carryInCents: 2_500,
   deficitPaidCents: 0,
@@ -92,7 +92,7 @@ describe('BudgetLineRow', () => {
     expect(req.request.method).toBe('PATCH');
     expect(req.request.body).toEqual({ limitCents: 61_250 });
 
-    const response = { month: '2026-09', categories: [] } as unknown as BudgetMonthDto;
+    const response = { month: '2026-09', groups: [] } as unknown as BudgetMonthDto;
     req.flush(response);
     await fixture.whenStable();
     expect(fixture.componentInstance.updated()).toEqual(response);

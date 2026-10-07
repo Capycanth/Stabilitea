@@ -1,17 +1,17 @@
 import {
-  type CategoryKind,
+  type GroupKind,
+  type CreateGroupRequest,
   type CreateCategoryRequest,
-  type CreateSubcategoryRequest,
   MAX_CENTS,
+  type UpdateGroupRequest,
   type UpdateCategoryRequest,
-  type UpdateSubcategoryRequest,
 } from '@stabilitea/shared';
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 
 const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
 
-export class CreateCategoryDto implements CreateCategoryRequest {
+export class CreateGroupDto implements CreateGroupRequest {
   @Transform(trim)
   @IsString()
   @IsNotEmpty({ message: 'Name is required' })
@@ -19,10 +19,10 @@ export class CreateCategoryDto implements CreateCategoryRequest {
   name!: string;
 
   @IsIn(['income', 'expense'], { message: 'Kind must be income or expense' })
-  kind!: CategoryKind;
+  kind!: GroupKind;
 }
 
-export class UpdateCategoryDto implements UpdateCategoryRequest {
+export class UpdateGroupDto implements UpdateGroupRequest {
   @IsOptional()
   @Transform(trim)
   @IsString()
@@ -40,7 +40,7 @@ export class UpdateCategoryDto implements UpdateCategoryRequest {
   archived?: boolean;
 }
 
-export class CreateSubcategoryDto implements CreateSubcategoryRequest {
+export class CreateCategoryDto implements CreateCategoryRequest {
   @Transform(trim)
   @IsString()
   @IsNotEmpty({ message: 'Name is required' })
@@ -58,7 +58,7 @@ export class CreateSubcategoryDto implements CreateSubcategoryRequest {
   fund?: boolean;
 }
 
-export class UpdateSubcategoryDto implements UpdateSubcategoryRequest {
+export class UpdateCategoryDto implements UpdateCategoryRequest {
   @IsOptional()
   @Transform(trim)
   @IsString()
@@ -69,7 +69,7 @@ export class UpdateSubcategoryDto implements UpdateSubcategoryRequest {
   @IsOptional()
   @IsInt()
   @Min(1)
-  categoryId?: number;
+  groupId?: number;
 
   @IsOptional()
   @IsInt({ message: 'Default limit must be a whole number of cents' })

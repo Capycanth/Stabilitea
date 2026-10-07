@@ -36,7 +36,7 @@ export class BudgetEditor {
   protected readonly monthName = monthName;
 
   protected readonly totals = computed(() => {
-    const lines = this.budget.hasValue() ? this.budget.value().categories.flatMap((g) => g.lines) : [];
+    const lines = this.budget.hasValue() ? this.budget.value().groups.flatMap((g) => g.lines) : [];
     return lines.reduce(
       (t, l) => ({
         limit: t.limit + l.limitCents,
@@ -54,7 +54,7 @@ export class BudgetEditor {
       this.budget.hasValue() &&
       !this.closed() &&
       this.budget.value().savingsBalanceCents > 0 &&
-      this.budget.value().categories.some((g) => g.lines.some((l) => l.fund && l.remainingCents < 0)),
+      this.budget.value().groups.some((g) => g.lines.some((l) => l.fund && l.remainingCents < 0)),
   );
 
   protected readonly closeExplanation = computed(
@@ -96,16 +96,16 @@ export class BudgetEditor {
     const paying = Math.min(deficit, balance);
     const partial = paying < deficit;
     const ok = await this.confirm().ask({
-      title: `Pay ${line.subcategoryName}'s deficit from savings?`,
+      title: `Pay ${line.categoryName}'s deficit from savings?`,
       message: partial
         ? `Savings has ${formatCents(balance)}, which covers ${formatCents(paying)} of the ${formatCents(deficit)} deficit. Savings will drop to $0.00 and ${formatCents(deficit - paying)} will still carry forward.`
-        : `This moves ${formatCents(paying)} from savings (balance ${formatCents(balance)}) to bring ${line.subcategoryName} back to $0.00. It's recorded on ${this.label()}'s budget and in the yearly report.`,
+        : `This moves ${formatCents(paying)} from savings (balance ${formatCents(balance)}) to bring ${line.categoryName} back to $0.00. It's recorded on ${this.label()}'s budget and in the yearly report.`,
       confirmLabel: `Pay ${formatCents(paying)}`,
     });
     if (ok) {
       await this.run(
         () => this.api.payDeficit(this.month(), line.id),
-        `Paid ${formatCents(paying)} of ${line.subcategoryName}'s deficit from savings.`,
+        `Paid ${formatCents(paying)} of ${line.categoryName}'s deficit from savings.`,
       );
     }
   }

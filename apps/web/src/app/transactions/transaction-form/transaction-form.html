@@ -46,24 +46,24 @@
     </div>
 
     <div class="field">
-      <label for="tx-subcategory">Category</label>
+      <label for="tx-category">Category</label>
       <select
-        id="tx-subcategory"
+        id="tx-category"
         class="input"
-        [formField]="txForm.subcategoryId"
-        [attr.aria-invalid]="showErrors(txForm.subcategoryId().touched(), txForm.subcategoryId().invalid())"
-        aria-describedby="tx-subcategory-hint tx-subcategory-errors"
+        [formField]="txForm.categoryId"
+        [attr.aria-invalid]="showErrors(txForm.categoryId().touched(), txForm.categoryId().invalid())"
+        aria-describedby="tx-category-hint tx-category-errors"
       >
         <option value="">Choose a category…</option>
-        @for (category of activeCategories(); track category.id) {
-          <optgroup [label]="category.name + (category.kind === 'income' ? ' (income)' : '')">
-            @for (sub of category.subcategories; track sub.id) {
-              <option [value]="'' + sub.id">{{ sub.name }}</option>
+        @for (group of activeGroups(); track group.id) {
+          <optgroup [label]="group.name + (group.kind === 'income' ? ' (income)' : '')">
+            @for (category of group.categories; track category.id) {
+              <option [value]="'' + category.id">{{ category.name }}</option>
             }
           </optgroup>
         }
       </select>
-      <p id="tx-subcategory-hint" class="hint">
+      <p id="tx-category-hint" class="hint">
         @switch (inferredType()) {
           @case ('income') {
             Recorded as <strong>income</strong>.
@@ -72,13 +72,13 @@
             Recorded as an <strong>expense</strong>.
           }
           @default {
-            Income or expense is set by the category.
+            Income or expense is set by the group.
           }
         }
       </p>
-      <div id="tx-subcategory-errors">
-        @if (txForm.subcategoryId().touched()) {
-          @if (txForm.subcategoryId().errors()[0]; as error) {
+      <div id="tx-category-errors">
+        @if (txForm.categoryId().touched()) {
+          @if (txForm.categoryId().errors()[0]; as error) {
             <p class="field-error" role="alert">{{ error.message }}</p>
           }
         }

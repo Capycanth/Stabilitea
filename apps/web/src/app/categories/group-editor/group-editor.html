@@ -1,0 +1,73 @@
+<div class="head">
+  <div>
+    <p class="eyebrow">{{ group().kind === 'income' ? 'Income group' : 'Expense group' }}</p>
+    <h2>{{ group().name }}</h2>
+  </div>
+  @if (group().archivedAt) {
+    <span class="chip"><app-icon name="archive" [size]="13" />Archived</span>
+  }
+</div>
+
+<form class="stack" novalidate [formRoot]="renameForm">
+  <div class="field">
+    <label for="group-name">Name</label>
+    <div class="row nowrap">
+      <input id="group-name" class="input" type="text" autocomplete="off" [formField]="renameForm.name" aria-describedby="group-name-errors" />
+      <button type="submit" class="btn" [disabled]="renameForm().submitting() || renameModel().name === group().name">Rename</button>
+    </div>
+    <div id="group-name-errors">
+      @for (error of renameForm.name().errors(); track $index) {
+        <p class="field-error" role="alert">{{ error.message }}</p>
+      }
+    </div>
+  </div>
+</form>
+
+<div class="row">
+  <button type="button" class="btn btn-sm" [disabled]="busy() || isFirst()" (click)="move(-1)">
+    <app-icon name="arrow-up" [size]="16" />Move up
+  </button>
+  <button type="button" class="btn btn-sm" [disabled]="busy() || isLast()" (click)="move(1)">
+    <app-icon name="arrow-down" [size]="16" />Move down
+  </button>
+  <button type="button" class="btn btn-sm" [disabled]="busy()" (click)="toggleArchived()">
+    <app-icon name="archive" [size]="16" />{{ group().archivedAt ? 'Unarchive' : 'Archive' }}
+  </button>
+</div>
+@if (!group().archivedAt) {
+  <p class="hint">Archived groups are hidden from new budgets; their history stays intact.</p>
+}
+
+<form class="stack category-form" novalidate [formRoot]="categoryForm" aria-labelledby="add-category-title">
+  <h3 id="add-category-title">Add category</h3>
+  <div class="fields">
+    <div class="field grow">
+      <label for="category-name">Name</label>
+      <input id="category-name" class="input" type="text" autocomplete="off" [formField]="categoryForm.name" aria-describedby="category-errors" />
+    </div>
+    @if (group().kind === 'expense') {
+      <div class="field limit">
+        <label for="category-limit">Default limit</label>
+        <app-money-input inputId="category-limit" describedBy="category-errors" [formField]="categoryForm.defaultLimitCents" />
+      </div>
+      <label class="checkbox fund">
+        <input type="checkbox" [formField]="categoryForm.fund" />
+        Fund
+      </label>
+    }
+    <button type="submit" class="btn btn-primary" [disabled]="categoryForm().submitting()"><app-icon name="plus" />Add</button>
+  </div>
+  @if (group().kind === 'expense') {
+    <p class="hint">A fund keeps its own balance from month to month. Leave it off and spending simply comes out of savings.</p>
+  }
+  <div id="category-errors">
+    @if (categoryForm.name().touched()) {
+      @for (error of categoryForm.name().errors(); track $index) {
+        <p class="field-error" role="alert">{{ error.message }}</p>
+      }
+    }
+    @for (error of categoryForm.defaultLimitCents().errors(); track $index) {
+      <p class="field-error" role="alert">{{ error.message }}</p>
+    }
+  </div>
+</form>

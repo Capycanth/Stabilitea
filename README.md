@@ -1,8 +1,8 @@
 # Stabilitea
 
 A calm, local-only personal budget. Record income and expenses by month, set limits on
-subcategories, see budget vs. actual, and close each month to settle it into savings. Any
-subcategory can be a **fund** that keeps its own balance from month to month.
+categories, see budget vs. actual, and close each month to settle it into savings. Any
+category can be a **fund** that keeps its own balance from month to month.
 
 Everything runs on your machine: an Angular 22 app, a NestJS API bound to `127.0.0.1`,
 and one SQLite file at `data/stabilitea.db`.
@@ -42,9 +42,9 @@ You can also download a full JSON export from **Download backup** in the sidebar
 
 | Sheet | Contents |
 | --- | --- |
-| Summary | Income and expenses side by side, net, planned income, budgeted, moved into and released from funds, fund deficits paid, savings on Jan 1, change in savings, savings at year end, months closed, and spending by category |
+| Summary | Income and expenses side by side, net, planned income, budgeted, moved into and released from funds, fund deficits paid, savings on Jan 1, change in savings, savings at year end, months closed, and spending by group |
 | Monthly | One row per month: status, income, expenses, net, planned income, budgeted, fund contributions and releases, fund deficits paid, change in savings, savings balance at month end |
-| Budget vs actual | Every subcategory for every month: regular or fund, limit, fund balance in, paid from savings, available, spent, remaining, and what happened at close |
+| Budget vs actual | Every category for every month: regular or fund, limit, fund balance in, paid from savings, available, spent, remaining, and what happened at close |
 
 Rows where a deficit was paid from savings are highlighted. The report is read-only and never creates budget months.
 
@@ -65,13 +65,13 @@ docs/         angular-best-practices.md
 ## How months work
 
 - **First visit creates the month** by copying the most recent earlier month's limits and planned
-  income (or each subcategory's default limit when there is none). Archived subcategories are skipped.
+  income (or each category's default limit when there is none). Archived categories are skipped.
 - **Savings is the money not committed to a fund.** Closing a month writes its savings entries:
-  `income` (+ each income subcategory), `spending` (− each regular subcategory's spending) and
+  `income` (+ each income category), `spending` (− each regular category's spending) and
   `fund_contribution` (− each fund's limit). So savings changes by **income − regular spending − fund
-  contributions**, and it can go negative. A regular subcategory's limit is a target: underspending simply
+  contributions**, and it can go negative. A regular category's limit is a target: underspending simply
   leaves more in savings, overspending leaves less.
-- **Funds** (a per-subcategory flag, expense only) keep their own balance: `limit + balance in + paid from
+- **Funds** (a per-category flag, expense only) keep their own balance: `limit + balance in + paid from
   savings − spent`. At close that balance, positive or negative, becomes next month's carry-in ("Balance
   in"). If next month has no fund line for it (archived, or switched to regular), the balance goes back to
   savings as a `fund_release` entry, so savings + all fund balances always equals total income − total spending.
@@ -80,7 +80,7 @@ docs/         angular-best-practices.md
   smaller. Each payment is stored on the budget line (`deficit_paid_cents`) and as a negative
   `deficit_payment` savings entry, listed on the Budget page (with Undo while the month is open), on the
   Savings page, and in the yearly report.
-- **Switching** a subcategory between regular and fund applies to open months only; closed months keep
+- **Switching** a category between regular and fund applies to open months only; closed months keep
   their snapshot.
 - **Reopening** removes that month's close entries and resets next month's carry-ins; deficit payments stay
   recorded. Months reopen newest-first, and a closed month rejects transaction and budget edits with
@@ -96,8 +96,8 @@ Choices made where the design document left room:
 - **Upgrading from the rollover model:** run `npm run db:push`. It drops the old `rollover` columns. Savings
   entries and carry-ins from that model followed different rules, so start from a fresh database (delete
   `data/stabilitea.db` before `db:push`).
-- **Budget lines exist only for expense subcategories.** Income is tracked against planned income.
-- **New or unarchived expense subcategories** get a line (at their default limit) in every open month,
+- **Budget lines exist only for expense categories.** Income is tracked against planned income.
+- **New or unarchived expense categories** get a line (at their default limit) in every open month,
   so their spending shows up immediately.
 - **Closing out of order** is allowed as long as the next month is open; closing an earlier month after a
   later one is closed is blocked, which keeps closed history stable.

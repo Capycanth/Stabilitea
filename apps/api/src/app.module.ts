@@ -3,7 +3,7 @@ import path from 'node:path';
 import { type DynamicModule, Module } from '@nestjs/common';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { BudgetsModule } from './budgets/budgets.module.js';
-import { CategoriesModule } from './categories/categories.module.js';
+import { GroupsModule } from './groups/groups.module.js';
 import { WEB_DIST } from './config.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { ReportsModule } from './reports/reports.module.js';
@@ -21,7 +21,7 @@ function webApp(): DynamicModule[] {
   imports: [
     PrismaModule,
     BudgetsModule,
-    CategoriesModule,
+    GroupsModule,
     TransactionsModule,
     SummaryModule,
     SavingsModule,

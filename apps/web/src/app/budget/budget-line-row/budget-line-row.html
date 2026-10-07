@@ -1,5 +1,5 @@
 <th scope="row" class="name">
-  {{ line().subcategoryName }}
+  {{ line().categoryName }}
   @if (line().fund) {
     <span class="chip chip-green fund"><app-icon name="rollover" [size]="12" />Fund</span>
   }
@@ -10,7 +10,7 @@
   } @else {
     <app-money-input
       [inputId]="inputId()"
-      [ariaLabel]="'Limit for ' + line().subcategoryName"
+      [ariaLabel]="'Limit for ' + line().categoryName"
       [describedBy]="errorId()"
       [formField]="lineForm.limitCents"
     />
@@ -48,7 +48,7 @@
     @if (canPayDeficit()) {
       <button type="button" class="btn btn-sm pay" [disabled]="busy()" (click)="payDeficit.emit(line())">
         <app-icon name="piggy-out" [size]="15" />Pay from savings
-        <span class="visually-hidden">for {{ line().subcategoryName }}</span>
+        <span class="visually-hidden">for {{ line().categoryName }}</span>
       </button>
     }
   } @else {

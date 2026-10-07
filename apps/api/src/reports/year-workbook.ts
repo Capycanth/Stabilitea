@@ -46,9 +46,9 @@ function addTitle(sheet: ExcelJS.Worksheet, title: string, subtitle: string, wid
   const titleCell = sheet.getCell(1, 1);
   titleCell.value = title;
   titleCell.font = { bold: true, size: 16, color: { argb: INK } };
-  const sub = sheet.getCell(2, 1);
-  sub.value = subtitle;
-  sub.font = { italic: true, color: { argb: MUTED } };
+  const category = sheet.getCell(2, 1);
+  category.value = subtitle;
+  category.font = { italic: true, color: { argb: MUTED } };
   for (const r of [1, 2]) {
     sheet.getRow(r).eachCell({ includeEmpty: true }, (cell) => {
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: IVORY } };
@@ -102,15 +102,15 @@ export async function renderYearWorkbook(report: YearReport): Promise<Buffer> {
   }
 
   summary.addRow([]);
-  const catHeader = summary.addRow(['Spending by category', 'Budgeted', 'Spent', 'Paid from savings']);
+  const catHeader = summary.addRow(['Spending by group', 'Budgeted', 'Spent', 'Paid from savings']);
   styleHeader(catHeader);
   const catStart = catHeader.number + 1;
-  for (const c of report.categories) {
-    const row = summary.addRow([c.categoryName, dollars(c.budgetedCents), dollars(c.spentCents), dollars(c.deficitPaidCents)]);
+  for (const c of report.groups) {
+    const row = summary.addRow([c.groupName, dollars(c.budgetedCents), dollars(c.spentCents), dollars(c.deficitPaidCents)]);
     [2, 3, 4].forEach((i) => (row.getCell(i).numFmt = MONEY));
   }
   const catEnd = summary.lastRow?.number ?? catStart;
-  if (report.categories.length) {
+  if (report.groups.length) {
     const total = summary.addRow([
       'Total',
       { formula: `SUM(B${catStart}:B${catEnd})` },
@@ -183,8 +183,8 @@ export async function renderYearWorkbook(report: YearReport): Promise<Buffer> {
   detail.pageSetup.printTitlesRow = '4:4';
   const detailHeaders = [
     'Month',
+    'Group',
     'Category',
-    'Subcategory',
     'Type',
     'Limit / contribution',
     'Fund balance in',
@@ -219,8 +219,8 @@ export async function renderYearWorkbook(report: YearReport): Promise<Buffer> {
     for (const line of m.lines) {
       const row = detail.addRow([
         monthLabel(m.month),
+        line.groupName,
         line.categoryName,
-        line.subcategoryName,
         line.fund ? 'Fund' : 'Regular',
         dollars(line.limitCents),
         dollars(line.carryInCents),

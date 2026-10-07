@@ -3,17 +3,17 @@
  * All money is integer cents. Months are 'YYYY-MM'; dates are 'YYYY-MM-DD'.
  */
 
-export type CategoryKind = 'income' | 'expense';
-export type TransactionType = CategoryKind;
+export type GroupKind = 'income' | 'expense';
+export type TransactionType = GroupKind;
 export type MonthStatus = 'open' | 'closed';
 
 // ---------------------------------------------------------------------------
-// Categories
+// Groups
 // ---------------------------------------------------------------------------
 
-export interface SubcategoryDto {
+export interface CategoryDto {
   id: number;
-  categoryId: number;
+  groupId: number;
   name: string;
   defaultLimitCents: number;
   /**
@@ -23,43 +23,43 @@ export interface SubcategoryDto {
   fund: boolean;
   sortOrder: number;
   archivedAt: string | null;
-  /** Number of transactions recorded against this subcategory (all months). */
+  /** Number of transactions recorded against this category (all months). */
   transactionCount: number;
 }
 
-export interface CategoryDto {
+export interface GroupDto {
   id: number;
   name: string;
-  kind: CategoryKind;
+  kind: GroupKind;
   sortOrder: number;
   archivedAt: string | null;
-  subcategories: SubcategoryDto[];
+  categories: CategoryDto[];
 }
 
-export interface CreateCategoryRequest {
+export interface CreateGroupRequest {
   name: string;
-  kind: CategoryKind;
+  kind: GroupKind;
 }
 
-export interface UpdateCategoryRequest {
+export interface UpdateGroupRequest {
   name?: string;
   sortOrder?: number;
   archived?: boolean;
 }
 
-export interface CreateSubcategoryRequest {
+export interface CreateCategoryRequest {
   name: string;
   defaultLimitCents?: number;
-  /** Expense subcategories only. */
+  /** Expense categories only. */
   fund?: boolean;
 }
 
-export interface UpdateSubcategoryRequest {
+export interface UpdateCategoryRequest {
   name?: string;
-  /** Move to another category of the same kind. */
-  categoryId?: number;
+  /** Move to another group of the same kind. */
+  groupId?: number;
   defaultLimitCents?: number;
-  /** Expense subcategories only. Open months follow the change; closed months keep their snapshot. */
+  /** Expense categories only. Open months follow the change; closed months keep their snapshot. */
   fund?: boolean;
   sortOrder?: number;
   archived?: boolean;
@@ -74,10 +74,10 @@ export interface TransactionDto {
   date: string;
   type: TransactionType;
   amountCents: number;
-  subcategoryId: number;
-  subcategoryName: string;
   categoryId: number;
   categoryName: string;
+  groupId: number;
+  groupName: string;
   payee: string | null;
   note: string | null;
   createdAt: string;
@@ -88,7 +88,7 @@ export interface CreateTransactionRequest {
   date: string;
   type: TransactionType;
   amountCents: number;
-  subcategoryId: number;
+  categoryId: number;
   payee?: string | null;
   note?: string | null;
 }
@@ -97,8 +97,8 @@ export type UpdateTransactionRequest = Partial<CreateTransactionRequest>;
 
 export interface TransactionFilters {
   type?: TransactionType;
+  groupId?: number;
   categoryId?: number;
-  subcategoryId?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,8 +108,8 @@ export interface TransactionFilters {
 export interface BudgetLineDto {
   id: number;
   month: string;
-  subcategoryId: number;
-  subcategoryName: string;
+  categoryId: number;
+  categoryName: string;
   /** Regular line: this month's spending target. Fund line: this month's contribution from savings. */
   limitCents: number;
   /** Fund balance brought in from last month. Negative when the fund carried a deficit. Always 0 for new regular lines. */
@@ -118,7 +118,7 @@ export interface BudgetLineDto {
   deficitPaidCents: number;
   /** limit + carryIn + deficitPaid. May be negative. */
   availableCents: number;
-  /** Snapshot of the subcategory's fund flag for this month. */
+  /** Snapshot of the category's fund flag for this month. */
   fund: boolean;
   spentCents: number;
   /** available - spent. For a fund, its balance at the end of the month. */
@@ -130,17 +130,17 @@ export interface DeficitPaymentDto {
   id: number;
   month: string;
   budgetLineId: number | null;
-  subcategoryId: number | null;
-  subcategoryName: string | null;
+  categoryId: number | null;
   categoryName: string | null;
+  groupName: string | null;
   /** Positive amount moved out of savings. */
   amountCents: number;
   createdAt: string;
 }
 
-export interface BudgetCategoryGroup {
-  categoryId: number;
-  categoryName: string;
+export interface BudgetGroup {
+  groupId: number;
+  groupName: string;
   lines: BudgetLineDto[];
 }
 
@@ -157,7 +157,7 @@ export interface BudgetMonthDto {
   savingsBalanceCents: number;
   /** Sum of deficit payments recorded on this month. */
   deficitPaidCents: number;
-  categories: BudgetCategoryGroup[];
+  groups: BudgetGroup[];
   /** Deficit payments recorded on this month, oldest first. */
   deficitPayments: DeficitPaymentDto[];
 }
@@ -174,7 +174,7 @@ export interface UpdateBudgetLineRequest {
 // Summary
 // ---------------------------------------------------------------------------
 
-export interface SubcategorySummary {
+export interface CategorySummary {
   id: number;
   name: string;
   fund: boolean;
@@ -186,16 +186,16 @@ export interface SubcategorySummary {
   remainingCents: number;
 }
 
-export interface CategorySummary {
+export interface GroupSummary {
   id: number;
   name: string;
-  /** Sum of subcategory limits. */
+  /** Sum of category limits. */
   limitCents: number;
   /** Limits + carry-in + deficit paid. May be negative. */
   availableCents: number;
   deficitPaidCents: number;
   spentCents: number;
-  subcategories: SubcategorySummary[];
+  categories: CategorySummary[];
 }
 
 export interface MonthSummary {
@@ -217,7 +217,7 @@ export interface MonthSummary {
   savingsChangeCents: number;
   /** Earliest budgeted month before this one that is still open, if any. */
   earliestOpenPastMonth: string | null;
-  categories: CategorySummary[];
+  groups: GroupSummary[];
 }
 
 // ---------------------------------------------------------------------------
@@ -225,7 +225,7 @@ export interface MonthSummary {
 // ---------------------------------------------------------------------------
 
 /**
- * Closing a month writes 'income' (+), 'spending' (− regular subcategories), 'fund_contribution' (− a fund's limit)
+ * Closing a month writes 'income' (+), 'spending' (− regular categories), 'fund_contribution' (− a fund's limit)
  * and 'fund_release' (± a fund balance that has no fund line to carry into). 'deficit_payment' (−) is written when
  * a fund's deficit is paid from savings.
  */
@@ -235,9 +235,9 @@ export interface SavingsEntryDto {
   id: number;
   kind: SavingsEntryKind;
   month: string;
-  subcategoryId: number | null;
-  subcategoryName: string | null;
+  categoryId: number | null;
   categoryName: string | null;
+  groupName: string | null;
   /** Positive adds to savings, negative takes from it. */
   amountCents: number;
   createdAt: string;
@@ -261,9 +261,9 @@ export interface SavingsMonthDto {
 }
 
 export interface FundBalanceDto {
-  subcategoryId: number;
-  subcategoryName: string;
+  categoryId: number;
   categoryName: string;
+  groupName: string;
   /** Balance after the latest close, including deficits paid since. May be negative. */
   balanceCents: number;
 }
@@ -304,11 +304,11 @@ export interface ReportYearsDto {
 
 export interface ExportDto {
   app: 'stabilitea';
-  /** 2: funds on subcategories; savings ledger tracks income, spending and fund flows. */
+  /** 2: funds on categories; savings ledger tracks income, spending and fund flows. */
   schemaVersion: 2;
   exportedAt: string;
+  groups: unknown[];
   categories: unknown[];
-  subcategories: unknown[];
   budgetMonths: unknown[];
   budgetLines: unknown[];
   transactions: unknown[];

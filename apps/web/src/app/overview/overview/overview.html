@@ -87,14 +87,14 @@
       </div>
     </section>
 
-    <section class="stack" aria-labelledby="categories-title">
+    <section class="stack" aria-labelledby="groups-title">
       <div class="row between">
-        <h2 id="categories-title">Budget vs. actual</h2>
+        <h2 id="groups-title">Budget vs. actual</h2>
         <a class="btn btn-sm" [routerLink]="['/', s.month, 'budget']">Edit budget</a>
       </div>
       <div class="grid">
-        @for (category of s.categories; track category.id) {
-          <app-category-card [category]="category" />
+        @for (group of s.groups; track group.id) {
+          <app-group-card [group]="group" />
         } @empty {
           <p class="empty">
             No expense categories yet. <a routerLink="/categories">Add categories</a> to start budgeting.

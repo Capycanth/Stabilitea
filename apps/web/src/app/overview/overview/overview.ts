@@ -7,11 +7,11 @@ import { Icon } from '../../shared/icon/icon';
 import { MoneyPipe } from '../../shared/money-pipe';
 import { addMonths, currentMonth, monthLabel, monthName } from '../../shared/month';
 import { Notifier } from '../../shared/notifier';
-import { CategoryCard } from '../category-card/category-card';
+import { GroupCard } from '../group-card/group-card';
 
 @Component({
   selector: 'app-overview',
-  imports: [RouterLink, CategoryCard, Icon, MoneyPipe, ConfirmDialog],
+  imports: [RouterLink, GroupCard, Icon, MoneyPipe, ConfirmDialog],
   templateUrl: './overview.html',
   styleUrl: './overview.scss',
 })
@@ -30,7 +30,7 @@ export class Overview {
   protected readonly nextMonthLabel = computed(() => monthLabel(addMonths(this.month(), 1)));
   protected readonly loadError = computed(() => errorMessage(this.summary.error()));
   protected readonly totalAvailable = computed(() =>
-    this.summary.hasValue() ? this.summary.value().categories.reduce((sum, c) => sum + c.availableCents, 0) : 0,
+    this.summary.hasValue() ? this.summary.value().groups.reduce((sum, c) => sum + c.availableCents, 0) : 0,
   );
   /** A past month that is still open, with no earlier open month blocking it. */
   protected readonly showCloseBanner = computed(

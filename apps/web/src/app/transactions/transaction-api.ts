@@ -15,11 +15,11 @@ export class TransactionApi {
   /** A month's transactions, refetched when the month or filters change. Call from an injection context. */
   transactionsResource(month: Signal<string>, filters: Signal<TransactionFilters>) {
     return httpResource<TransactionDto[]>(() => {
-      const { type, categoryId, subcategoryId } = filters();
+      const { type, groupId, categoryId } = filters();
       const params: Record<string, string | number> = { month: month() };
       if (type) params['type'] = type;
+      if (groupId) params['groupId'] = groupId;
       if (categoryId) params['categoryId'] = categoryId;
-      if (subcategoryId) params['subcategoryId'] = subcategoryId;
       return { url: '/api/transactions', params };
     });
   }

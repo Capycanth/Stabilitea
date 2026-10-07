@@ -2,7 +2,7 @@
 @media (max-width: 860px) { .split { grid-template-columns: minmax(0, 1fr); } }
 .tree-card { display: grid; gap: 6px; padding: 16px; }
 .tree { margin-top: 6px; outline: none; }
-.group { padding-left: 18px; }
+.children { padding-left: 18px; }
 .node { outline: none; cursor: pointer; }
 .node-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; }
 .node[aria-expanded] > .node-row::before { content: ''; width: 0; height: 0; border-style: solid; border-width: 5px 0 5px 7px; border-color: transparent transparent transparent var(--st-ink-muted); transition: transform 120ms ease; }

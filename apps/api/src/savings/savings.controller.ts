@@ -10,7 +10,7 @@ export class SavingsController {
   async get(): Promise<SavingsDto> {
     const entries = await this.prisma.savingsEntry.findMany({
       orderBy: [{ month: 'desc' }, { id: 'asc' }],
-      include: { subcategory: { include: { category: true } } },
+      include: { category: { include: { group: true } } },
     });
 
     const byMonth = new Map<string, SavingsMonthDto>();
@@ -52,9 +52,9 @@ export class SavingsController {
         id: entry.id,
         kind: entry.kind as SavingsEntryKind,
         month: entry.month,
-        subcategoryId: entry.subcategoryId,
-        subcategoryName: entry.subcategory?.name ?? null,
-        categoryName: entry.subcategory?.category.name ?? null,
+        categoryId: entry.categoryId,
+        categoryName: entry.category?.name ?? null,
+        groupName: entry.category?.group.name ?? null,
         amountCents: entry.amountCents,
         createdAt: entry.createdAt.toISOString(),
       })),
@@ -66,10 +66,10 @@ export class SavingsController {
    * after the latest closed month, or in the first budgeted month when nothing has closed yet.
    */
   private async fundBalances(): Promise<FundBalanceDto[]> {
-    const funds = await this.prisma.subcategory.findMany({
-      where: { fund: true, archivedAt: null, category: { kind: 'expense', archivedAt: null } },
-      include: { category: true },
-      orderBy: [{ category: { sortOrder: 'asc' } }, { categoryId: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }],
+    const funds = await this.prisma.category.findMany({
+      where: { fund: true, archivedAt: null, group: { kind: 'expense', archivedAt: null } },
+      include: { group: true },
+      orderBy: [{ group: { sortOrder: 'asc' } }, { groupId: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }],
     });
     if (!funds.length) return [];
 
@@ -82,15 +82,15 @@ export class SavingsController {
       ? addMonths(lastClosed.month, 1)
       : (await this.prisma.budgetMonth.findFirst({ orderBy: { month: 'asc' }, select: { month: true } }))?.month;
     const lines = anchor
-      ? await this.prisma.budgetLine.findMany({ where: { month: anchor, subcategoryId: { in: funds.map((f) => f.id) } } })
+      ? await this.prisma.budgetLine.findMany({ where: { month: anchor, categoryId: { in: funds.map((f) => f.id) } } })
       : [];
-    const bySub = new Map(lines.map((line) => [line.subcategoryId, line.carryInCents + line.deficitPaidCents]));
+    const bySub = new Map(lines.map((line) => [line.categoryId, line.carryInCents + line.deficitPaidCents]));
 
-    return funds.map((sub) => ({
-      subcategoryId: sub.id,
-      subcategoryName: sub.name,
-      categoryName: sub.category.name,
-      balanceCents: bySub.get(sub.id) ?? 0,
+    return funds.map((category) => ({
+      categoryId: category.id,
+      categoryName: category.name,
+      groupName: category.group.name,
+      balanceCents: bySub.get(category.id) ?? 0,
     }));
   }
 }

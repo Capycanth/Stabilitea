@@ -10,7 +10,7 @@ import {
   validate,
   type ValidationError,
 } from '@angular/forms/signals';
-import type { CategoryDto, TransactionDto, TransactionType } from '@stabilitea/shared';
+import type { GroupDto, TransactionDto, TransactionType } from '@stabilitea/shared';
 import { isValidDate, monthOf } from '@stabilitea/shared';
 import { toApiError } from '../../shared/api-error';
 import { closeDialog, openDialog } from '../../shared/confirm-dialog/confirm-dialog';
@@ -23,8 +23,8 @@ export interface TransactionModel {
   date: string;
   /** Integer cents; the input shows dollars. */
   amountCents: number | null;
-  /** Select value: '' or a subcategory id. */
-  subcategoryId: string;
+  /** Select value: '' or a category id. */
+  categoryId: string;
   payee: string;
   note: string;
 }
@@ -33,7 +33,7 @@ function emptyModel(month: string): TransactionModel {
   return {
     date: month === currentMonth() ? today() : `${month}-01`,
     amountCents: null,
-    subcategoryId: '',
+    categoryId: '',
     payee: '',
     note: '',
   };
@@ -53,7 +53,7 @@ export class TransactionForm {
   private readonly dialog = viewChild.required<ElementRef<HTMLDialogElement>>('dialog');
 
   readonly month = input.required<string>();
-  readonly categories = input.required<CategoryDto[]>();
+  readonly groups = input.required<GroupDto[]>();
   readonly saved = output<TransactionDto>();
 
   protected readonly editing = signal<TransactionDto | null>(null);
@@ -62,23 +62,23 @@ export class TransactionForm {
 
   private readonly model = signal<TransactionModel>(emptyModel(currentMonth()));
 
-  protected readonly activeCategories = computed(() =>
-    this.categories()
+  protected readonly activeGroups = computed(() =>
+    this.groups()
       .filter((c) => !c.archivedAt)
-      .map((c) => ({ ...c, subcategories: c.subcategories.filter((s) => !s.archivedAt || this.isCurrentSub(s.id)) }))
-      .filter((c) => c.subcategories.length > 0),
+      .map((c) => ({ ...c, categories: c.categories.filter((s) => !s.archivedAt || this.isCurrentSub(s.id)) }))
+      .filter((c) => c.categories.length > 0),
   );
 
-  private readonly kindBySubcategory = computed(() => {
+  private readonly kindByCategory = computed(() => {
     const map = new Map<string, TransactionType>();
-    for (const category of this.categories()) {
-      for (const sub of category.subcategories) map.set(String(sub.id), category.kind);
+    for (const group of this.groups()) {
+      for (const category of group.categories) map.set(String(category.id), group.kind);
     }
     return map;
   });
 
-  /** `type` is inferred from the chosen subcategory's category kind. */
-  protected readonly inferredType = computed(() => this.kindBySubcategory().get(this.model().subcategoryId) ?? null);
+  /** `type` is inferred from the chosen category's group kind. */
+  protected readonly inferredType = computed(() => this.kindByCategory().get(this.model().categoryId) ?? null);
 
   protected readonly txForm = form(
     this.model,
@@ -89,7 +89,7 @@ export class TransactionForm {
       );
       required(f.amountCents, { message: 'Enter an amount' });
       min(f.amountCents, 1, { message: 'Amount must be greater than 0' });
-      required(f.subcategoryId, { message: 'Choose a category' });
+      required(f.categoryId, { message: 'Choose a group' });
       maxLength(f.payee, 120, { message: 'Payee must be 120 characters or fewer' });
       maxLength(f.note, 500, { message: 'Note must be 500 characters or fewer' });
     },
@@ -110,7 +110,7 @@ export class TransactionForm {
       ? {
           date: transaction.date,
           amountCents: transaction.amountCents,
-          subcategoryId: String(transaction.subcategoryId),
+          categoryId: String(transaction.categoryId),
           payee: transaction.payee ?? '',
           note: transaction.note ?? '',
         }
@@ -133,7 +133,7 @@ export class TransactionForm {
   }
 
   private isCurrentSub(id: number): boolean {
-    return this.editing()?.subcategoryId === id;
+    return this.editing()?.categoryId === id;
   }
 
   private async save(): Promise<TreeValidationResult> {
@@ -146,7 +146,7 @@ export class TransactionForm {
       date: value.date,
       type,
       amountCents: value.amountCents,
-      subcategoryId: Number(value.subcategoryId),
+      categoryId: Number(value.categoryId),
       payee: value.payee.trim() || null,
       note: value.note.trim() || null,
     };
@@ -177,8 +177,8 @@ export class TransactionForm {
     const targets = {
       date: f.date,
       amountCents: f.amountCents,
-      subcategoryId: f.subcategoryId,
-      type: f.subcategoryId,
+      categoryId: f.categoryId,
+      type: f.categoryId,
       payee: f.payee,
       note: f.note,
     } as const;

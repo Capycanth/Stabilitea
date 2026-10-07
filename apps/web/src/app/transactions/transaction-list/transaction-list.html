@@ -5,7 +5,7 @@
       <h1>Transactions</h1>
     </div>
     @if (!isClosed()) {
-      <button type="button" class="btn btn-primary" [disabled]="!categories.hasValue()" (click)="add()">
+      <button type="button" class="btn btn-primary" [disabled]="!groups.hasValue()" (click)="add()">
         <app-icon name="plus" />
         Add transaction
       </button>
@@ -22,8 +22,8 @@
     </p>
   }
 
-  @if (categories.hasValue()) {
-    <app-transaction-filter-bar [categories]="categories.value()" [(filters)]="filters" />
+  @if (groups.hasValue()) {
+    <app-transaction-filter-bar [groups]="groups.value()" [(filters)]="filters" />
   }
 
   <section class="totals" aria-label="Totals for the listed transactions">
@@ -38,16 +38,16 @@
 
   @if (transactions.hasValue()) {
     <div class="groups" [attr.aria-busy]="transactions.isLoading()">
-      @for (group of groups(); track group.date) {
-        <section class="group" [attr.aria-labelledby]="'day-' + group.date">
-          <h2 class="day" [id]="'day-' + group.date">{{ group.label }}</h2>
+      @for (day of days(); track day.date) {
+        <section class="group" [attr.aria-labelledby]="'day-' + day.date">
+          <h2 class="day" [id]="'day-' + day.date">{{ day.label }}</h2>
           <ul class="items list-reset">
-            @for (tx of group.items; track tx.id) {
+            @for (tx of day.items; track tx.id) {
               <li class="item">
                 <div class="who">
-                  <p class="payee">{{ tx.payee || tx.subcategoryName }}</p>
+                  <p class="payee">{{ tx.payee || tx.categoryName }}</p>
                   <p class="meta muted">
-                    {{ tx.categoryName }} › {{ tx.subcategoryName }}
+                    {{ tx.groupName }} › {{ tx.categoryName }}
                     @if (tx.note) {
                       <span class="note"> · {{ tx.note }}</span>
                     }
@@ -88,7 +88,7 @@
   }
 </div>
 
-@if (categories.hasValue()) {
-  <app-transaction-form [month]="month()" [categories]="categories.value()" (saved)="onSaved($event)" />
+@if (groups.hasValue()) {
+  <app-transaction-form [month]="month()" [groups]="groups.value()" (saved)="onSaved($event)" />
 }
 <app-confirm-dialog />

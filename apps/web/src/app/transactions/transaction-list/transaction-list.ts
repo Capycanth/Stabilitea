@@ -2,7 +2,7 @@ import { Component, computed, inject, input, signal, viewChild } from '@angular/
 import { RouterLink } from '@angular/router';
 import type { TransactionDto, TransactionFilters } from '@stabilitea/shared';
 import { BudgetApi } from '../../budget/budget-api';
-import { CategoryApi } from '../../categories/category-api';
+import { GroupApi } from '../../categories/group-api';
 import { errorMessage } from '../../shared/api-error';
 import { ConfirmDialog } from '../../shared/confirm-dialog/confirm-dialog';
 import { Icon } from '../../shared/icon/icon';
@@ -14,7 +14,7 @@ import { TransactionApi } from '../transaction-api';
 import { TransactionFilterBar } from '../transaction-filter-bar/transaction-filter-bar';
 import { TransactionForm } from '../transaction-form/transaction-form';
 
-interface DateGroup {
+interface DayGroup {
   date: string;
   label: string;
   items: TransactionDto[];
@@ -30,7 +30,7 @@ const dateFormat = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: '
 })
 export class TransactionList {
   private readonly transactionApi = inject(TransactionApi);
-  private readonly categoryApi = inject(CategoryApi);
+  private readonly groupApi = inject(GroupApi);
   private readonly budgetApi = inject(BudgetApi);
   private readonly notifier = inject(Notifier);
   private readonly form = viewChild(TransactionForm);
@@ -41,7 +41,7 @@ export class TransactionList {
 
   protected readonly filters = signal<TransactionFilters>({});
   protected readonly transactions = this.transactionApi.transactionsResource(this.month, this.filters);
-  protected readonly categories = this.categoryApi.categoriesResource();
+  protected readonly groups = this.groupApi.groupsResource();
   protected readonly budget = this.budgetApi.budgetResource(this.month);
 
   protected readonly label = computed(() => monthLabel(this.month()));
@@ -49,18 +49,18 @@ export class TransactionList {
   protected readonly hasFilters = computed(() => Object.values(this.filters()).some((v) => v !== undefined));
   protected readonly loadError = computed(() => errorMessage(this.transactions.error()));
 
-  protected readonly groups = computed<DateGroup[]>(() => {
+  protected readonly days = computed<DayGroup[]>(() => {
     if (!this.transactions.hasValue()) return [];
-    const groups: DateGroup[] = [];
+    const days: DayGroup[] = [];
     for (const tx of this.transactions.value()) {
-      let group = groups.at(-1);
-      if (!group || group.date !== tx.date) {
-        group = { date: tx.date, label: dateFormat.format(new Date(`${tx.date}T00:00:00Z`)), items: [] };
-        groups.push(group);
+      let day = days.at(-1);
+      if (!day || day.date !== tx.date) {
+        day = { date: tx.date, label: dateFormat.format(new Date(`${tx.date}T00:00:00Z`)), items: [] };
+        days.push(day);
       }
-      group.items.push(tx);
+      day.items.push(tx);
     }
-    return groups;
+    return days;
   });
 
   protected readonly totals = computed(() => {
@@ -77,7 +77,7 @@ export class TransactionList {
   protected readonly monthName = monthName;
 
   protected describe(tx: TransactionDto): string {
-    return `${formatCents(tx.amountCents)} ${tx.payee ?? tx.subcategoryName} on ${tx.date}`;
+    return `${formatCents(tx.amountCents)} ${tx.payee ?? tx.categoryName} on ${tx.date}`;
   }
 
   protected add(): void {
@@ -89,7 +89,7 @@ export class TransactionList {
   }
 
   protected onSaved(tx: TransactionDto): void {
-    this.notifier.success(`Saved ${formatCents(tx.amountCents)} ${tx.payee ?? tx.subcategoryName}.`);
+    this.notifier.success(`Saved ${formatCents(tx.amountCents)} ${tx.payee ?? tx.categoryName}.`);
     this.transactions.reload();
   }
 

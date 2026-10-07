@@ -2,11 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { isValidMonth, monthBounds, monthOf, type TransactionDto, type TransactionType } from '@stabilitea/shared';
 import { BudgetLifecycleService } from '../budgets/budget-lifecycle.service.js';
 import { fieldError, notFound, validationError } from '../common/errors.js';
-import type { Category, Subcategory, Transaction } from '../generated/prisma/client.js';
+import type { Group, Category, Transaction } from '../generated/prisma/client.js';
 import { type Db, PrismaService } from '../prisma/prisma.service.js';
 import type { CreateTransactionDto, TransactionQueryDto, UpdateTransactionDto } from './transactions.dto.js';
 
-type TransactionRow = Transaction & { subcategory: Subcategory & { category: Category } };
+type TransactionRow = Transaction & { category: Category & { group: Group } };
 
 function toDto(row: TransactionRow): TransactionDto {
   return {
@@ -14,10 +14,10 @@ function toDto(row: TransactionRow): TransactionDto {
     date: row.date,
     type: row.type as TransactionType,
     amountCents: row.amountCents,
-    subcategoryId: row.subcategoryId,
-    subcategoryName: row.subcategory.name,
-    categoryId: row.subcategory.categoryId,
-    categoryName: row.subcategory.category.name,
+    categoryId: row.categoryId,
+    categoryName: row.category.name,
+    groupId: row.category.groupId,
+    groupName: row.category.group.name,
     payee: row.payee,
     note: row.note,
     createdAt: row.createdAt.toISOString(),
@@ -25,7 +25,7 @@ function toDto(row: TransactionRow): TransactionDto {
   };
 }
 
-const include = { subcategory: { include: { category: true } } } as const;
+const include = { category: { include: { group: true } } } as const;
 
 @Injectable()
 export class TransactionsService {
@@ -41,8 +41,8 @@ export class TransactionsService {
       where: {
         date: { gte: first, lte: last },
         type: query.type,
-        subcategoryId: query.subcategoryId,
-        subcategory: query.categoryId ? { categoryId: query.categoryId } : undefined,
+        categoryId: query.categoryId,
+        category: query.groupId ? { groupId: query.groupId } : undefined,
       },
       orderBy: [{ date: 'desc' }, { id: 'desc' }],
       include,
@@ -53,13 +53,13 @@ export class TransactionsService {
   async create(dto: CreateTransactionDto): Promise<TransactionDto> {
     return this.prisma.$transaction(async (tx) => {
       await this.lifecycle.assertOpen(tx, monthOf(dto.date));
-      await this.assertSubcategoryMatches(tx, dto.subcategoryId, dto.type, { allowArchived: false });
+      await this.assertCategoryMatches(tx, dto.categoryId, dto.type, { allowArchived: false });
       const row = await tx.transaction.create({
         data: {
           date: dto.date,
           type: dto.type,
           amountCents: dto.amountCents,
-          subcategoryId: dto.subcategoryId,
+          categoryId: dto.categoryId,
           payee: dto.payee ?? null,
           note: dto.note ?? null,
         },
@@ -78,10 +78,10 @@ export class TransactionsService {
       await this.lifecycle.assertOpen(tx, monthOf(current.date));
       if (monthOf(date) !== monthOf(current.date)) await this.lifecycle.assertOpen(tx, monthOf(date));
 
-      const subcategoryId = dto.subcategoryId ?? current.subcategoryId;
+      const categoryId = dto.categoryId ?? current.categoryId;
       const type = dto.type ?? (current.type as TransactionType);
-      await this.assertSubcategoryMatches(tx, subcategoryId, type, {
-        allowArchived: subcategoryId === current.subcategoryId,
+      await this.assertCategoryMatches(tx, categoryId, type, {
+        allowArchived: categoryId === current.categoryId,
       });
 
       const row = await tx.transaction.update({
@@ -89,7 +89,7 @@ export class TransactionsService {
         data: {
           date,
           type,
-          subcategoryId,
+          categoryId,
           amountCents: dto.amountCents,
           payee: dto.payee === undefined ? undefined : dto.payee,
           note: dto.note === undefined ? undefined : dto.note,
@@ -109,21 +109,21 @@ export class TransactionsService {
     });
   }
 
-  private async assertSubcategoryMatches(
+  private async assertCategoryMatches(
     db: Db,
-    subcategoryId: number,
+    categoryId: number,
     type: TransactionType,
     { allowArchived }: { allowArchived: boolean },
   ): Promise<void> {
-    const sub = await db.subcategory.findUnique({ where: { id: subcategoryId }, include: { category: true } });
-    if (!sub) throw fieldError('subcategoryId', 'Subcategory not found');
-    if (!allowArchived && (sub.archivedAt || sub.category.archivedAt)) {
-      throw fieldError('subcategoryId', `${sub.name} is archived`);
+    const category = await db.category.findUnique({ where: { id: categoryId }, include: { group: true } });
+    if (!category) throw fieldError('categoryId', 'Category not found');
+    if (!allowArchived && (category.archivedAt || category.group.archivedAt)) {
+      throw fieldError('categoryId', `${category.name} is archived`);
     }
-    if (sub.category.kind !== type) {
+    if (category.group.kind !== type) {
       throw validationError(
-        { type: [`${sub.category.name} is an ${sub.category.kind} category, so the type must be ${sub.category.kind}`] },
-        'Type does not match category',
+        { type: [`${category.group.name} is an ${category.group.kind} group, so the type must be ${category.group.kind}`] },
+        'Type does not match group',
       );
     }
   }

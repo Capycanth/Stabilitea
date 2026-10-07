@@ -21,38 +21,38 @@ describe('BudgetLifecycleService', () => {
     await prisma.onModuleInit();
     lifecycle = new BudgetLifecycleService(prisma);
 
-    const food = await prisma.category.create({
+    const food = await prisma.group.create({
       data: {
         name: 'Food',
         kind: 'expense',
         sortOrder: 1,
-        subcategories: {
+        categories: {
           create: [
             { name: 'Groceries', defaultLimitCents: 50_000, fund: true },
             { name: 'Dining Out', defaultLimitCents: 20_000, fund: true, sortOrder: 1 },
           ],
         },
       },
-      include: { subcategories: true },
+      include: { categories: true },
     });
-    const housing = await prisma.category.create({
+    const housing = await prisma.group.create({
       data: {
         name: 'Housing',
         kind: 'expense',
         sortOrder: 2,
-        subcategories: { create: [{ name: 'Rent', defaultLimitCents: 100_000 }] },
+        categories: { create: [{ name: 'Rent', defaultLimitCents: 100_000 }] },
       },
-      include: { subcategories: true },
+      include: { categories: true },
     });
-    const income = await prisma.category.create({
-      data: { name: 'Income', kind: 'income', subcategories: { create: [{ name: 'Salary' }] } },
-      include: { subcategories: true },
+    const income = await prisma.group.create({
+      data: { name: 'Income', kind: 'income', categories: { create: [{ name: 'Salary' }] } },
+      include: { categories: true },
     });
     foodId = food.id;
-    groceries = food.subcategories.find((s) => s.name === 'Groceries')!.id;
-    dining = food.subcategories.find((s) => s.name === 'Dining Out')!.id;
-    rent = housing.subcategories[0]!.id;
-    salary = income.subcategories[0]!.id;
+    groceries = food.categories.find((s) => s.name === 'Groceries')!.id;
+    dining = food.categories.find((s) => s.name === 'Dining Out')!.id;
+    rent = housing.categories[0]!.id;
+    salary = income.categories[0]!.id;
   });
 
   afterEach(async () => {
@@ -62,21 +62,21 @@ describe('BudgetLifecycleService', () => {
 
   const lines = async (month: string) =>
     new Map(
-      (await prisma.budgetLine.findMany({ where: { month } })).map((line) => [line.subcategoryId, line]),
+      (await prisma.budgetLine.findMany({ where: { month } })).map((line) => [line.categoryId, line]),
     );
 
-  const spend = (date: string, subcategoryId: number, amountCents: number) =>
-    prisma.transaction.create({ data: { date, type: 'expense', subcategoryId, amountCents } });
+  const spend = (date: string, categoryId: number, amountCents: number) =>
+    prisma.transaction.create({ data: { date, type: 'expense', categoryId, amountCents } });
 
   const earn = (date: string, amountCents: number) =>
-    prisma.transaction.create({ data: { date, type: 'income', subcategoryId: salary, amountCents } });
+    prisma.transaction.create({ data: { date, type: 'income', categoryId: salary, amountCents } });
 
   const balance = () => lifecycle.savingsBalance(prisma);
 
   const entries = async (month: string) =>
     (await prisma.savingsEntry.findMany({ where: { month }, orderBy: { id: 'asc' } })).map((e) => ({
       kind: e.kind,
-      subcategoryId: e.subcategoryId,
+      categoryId: e.categoryId,
       amountCents: e.amountCents,
     }));
 
@@ -86,8 +86,8 @@ describe('BudgetLifecycleService', () => {
     [...(await lines(month)).values()].filter((l) => l.fund).reduce((sum, l) => sum + l.carryInCents + l.deficitPaidCents, 0);
 
   describe('planClose', () => {
-    const line = (subcategoryId: number, fund: boolean, limitCents: number, carryInCents = 0, deficitPaidCents = 0) => ({
-      subcategoryId,
+    const line = (categoryId: number, fund: boolean, limitCents: number, carryInCents = 0, deficitPaidCents = 0) => ({
+      categoryId,
       fund,
       limitCents,
       carryInCents,
@@ -102,20 +102,20 @@ describe('BudgetLifecycleService', () => {
         new Set([2]),
       );
       expect(plan.moves).toEqual([
-        { kind: 'income', subcategoryId: 9, amountCents: 300_000 },
-        { kind: 'spending', subcategoryId: 1, amountCents: -90_000 },
-        { kind: 'fund_contribution', subcategoryId: 2, amountCents: -20_000 },
+        { kind: 'income', categoryId: 9, amountCents: 300_000 },
+        { kind: 'spending', categoryId: 1, amountCents: -90_000 },
+        { kind: 'fund_contribution', categoryId: 2, amountCents: -20_000 },
       ]);
       expect([...plan.carries]).toEqual([[2, -10_000]]);
       expect(plan.outcomes).toEqual([
-        { subcategoryId: 1, remainingCents: 10_000, result: 'regular' },
-        { subcategoryId: 2, remainingCents: -10_000, result: 'carried' },
+        { categoryId: 1, remainingCents: 10_000, result: 'regular' },
+        { categoryId: 2, remainingCents: -10_000, result: 'carried' },
       ]);
     });
 
     it('releases a fund balance when next month has no fund line for it', () => {
       const plan = planClose([line(2, true, 20_000, 3_000)], new Map(), new Map(), new Set());
-      expect(plan.moves).toContainEqual({ kind: 'fund_release', subcategoryId: 2, amountCents: 23_000 });
+      expect(plan.moves).toContainEqual({ kind: 'fund_release', categoryId: 2, amountCents: 23_000 });
       expect(plan.carries.size).toBe(0);
       expect(plan.outcomes[0]).toMatchObject({ result: 'released', remainingCents: 23_000 });
     });
@@ -123,19 +123,19 @@ describe('BudgetLifecycleService', () => {
     it('releases money still held on a line that was switched from fund to regular', () => {
       const plan = planClose([line(1, false, 10_000, -4_000, 1_000)], new Map([[1, 2_000]]), new Map(), new Set());
       expect(plan.moves).toEqual([
-        { kind: 'spending', subcategoryId: 1, amountCents: -2_000 },
-        { kind: 'fund_release', subcategoryId: 1, amountCents: -3_000 },
+        { kind: 'spending', categoryId: 1, amountCents: -2_000 },
+        { kind: 'fund_release', categoryId: 1, amountCents: -3_000 },
       ]);
     });
 
     it('counts spending without a budget line as regular spending', () => {
       const plan = planClose([], new Map([[7, 1_234]]), new Map(), new Set());
-      expect(plan.moves).toEqual([{ kind: 'spending', subcategoryId: 7, amountCents: -1_234 }]);
+      expect(plan.moves).toEqual([{ kind: 'spending', categoryId: 7, amountCents: -1_234 }]);
     });
   });
 
   describe('auto-copy', () => {
-    it('uses default limits when no earlier month exists, for active expense subcategories only', async () => {
+    it('uses default limits when no earlier month exists, for active expense categories only', async () => {
       await lifecycle.ensureMonth('2026-08');
       const month = await prisma.budgetMonth.findUniqueOrThrow({ where: { month: '2026-08' } });
       expect(month.status).toBe('open');
@@ -157,7 +157,7 @@ describe('BudgetLifecycleService', () => {
     it('copies limits and planned income from the most recent earlier month', async () => {
       await lifecycle.ensureMonth('2026-06');
       await prisma.budgetMonth.update({ where: { month: '2026-06' }, data: { plannedIncomeCents: 400_000 } });
-      await prisma.budgetLine.updateMany({ where: { month: '2026-06', subcategoryId: groceries }, data: { limitCents: 61_000 } });
+      await prisma.budgetLine.updateMany({ where: { month: '2026-06', categoryId: groceries }, data: { limitCents: 61_000 } });
 
       // Skips a gap: 2026-09 copies from 2026-06.
       await lifecycle.ensureMonth('2026-09');
@@ -166,10 +166,10 @@ describe('BudgetLifecycleService', () => {
       expect((await lines('2026-09')).get(groceries)?.limitCents).toBe(61_000);
     });
 
-    it('skips archived subcategories and adds active ones missing from the source', async () => {
+    it('skips archived categories and adds active ones missing from the source', async () => {
       await lifecycle.ensureMonth('2026-08');
-      await prisma.subcategory.update({ where: { id: dining }, data: { archivedAt: new Date() } });
-      const snacks = await prisma.subcategory.create({ data: { categoryId: foodId, name: 'Snacks', defaultLimitCents: 3_000 } });
+      await prisma.category.update({ where: { id: dining }, data: { archivedAt: new Date() } });
+      const snacks = await prisma.category.create({ data: { groupId: foodId, name: 'Snacks', defaultLimitCents: 3_000 } });
 
       await lifecycle.ensureMonth('2026-09');
       const byId = await lines('2026-09');
@@ -177,8 +177,8 @@ describe('BudgetLifecycleService', () => {
       expect(byId.get(snacks.id)).toMatchObject({ limitCents: 3_000, fund: false });
     });
 
-    it('snapshots the subcategory fund flag at creation time', async () => {
-      await prisma.subcategory.update({ where: { id: groceries }, data: { fund: false } });
+    it('snapshots the category fund flag at creation time', async () => {
+      await prisma.category.update({ where: { id: groceries }, data: { fund: false } });
       await lifecycle.ensureMonth('2026-08');
       expect((await lines('2026-08')).get(groceries)?.fund).toBe(false);
     });
@@ -191,10 +191,10 @@ describe('BudgetLifecycleService', () => {
       await lifecycle.close('2026-08');
 
       expect(await entries('2026-08')).toEqual([
-        { kind: 'income', subcategoryId: salary, amountCents: 400_000 },
-        { kind: 'spending', subcategoryId: rent, amountCents: -95_000 },
-        { kind: 'fund_contribution', subcategoryId: groceries, amountCents: -50_000 },
-        { kind: 'fund_contribution', subcategoryId: dining, amountCents: -20_000 },
+        { kind: 'income', categoryId: salary, amountCents: 400_000 },
+        { kind: 'spending', categoryId: rent, amountCents: -95_000 },
+        { kind: 'fund_contribution', categoryId: groceries, amountCents: -50_000 },
+        { kind: 'fund_contribution', categoryId: dining, amountCents: -20_000 },
       ]);
       // 400_000 − 95_000 − 70_000 into funds
       expect(await balance()).toBe(235_000);
@@ -208,7 +208,7 @@ describe('BudgetLifecycleService', () => {
       await spend('2026-08-02', rent, 120_000); // 20_000 over its 100_000 target
       const outcomes = await lifecycle.close('2026-08');
 
-      expect(outcomes.find((o) => o.subcategoryId === rent)).toEqual({ subcategoryId: rent, remainingCents: -20_000, result: 'regular' });
+      expect(outcomes.find((o) => o.categoryId === rent)).toEqual({ categoryId: rent, remainingCents: -20_000, result: 'regular' });
       expect(await balance()).toBe(200_000 - 120_000 - 70_000);
       expect((await lines('2026-09')).get(rent)?.carryInCents).toBe(0);
     });
@@ -224,8 +224,8 @@ describe('BudgetLifecycleService', () => {
       await spend('2026-08-11', dining, 25_000); // 20_000 → -5_000
       const outcomes = await lifecycle.close('2026-08');
 
-      expect(outcomes.find((o) => o.subcategoryId === groceries)).toMatchObject({ remainingCents: 20_000, result: 'carried' });
-      expect(outcomes.find((o) => o.subcategoryId === dining)).toMatchObject({ remainingCents: -5_000, result: 'carried' });
+      expect(outcomes.find((o) => o.categoryId === groceries)).toMatchObject({ remainingCents: 20_000, result: 'carried' });
+      expect(outcomes.find((o) => o.categoryId === dining)).toMatchObject({ remainingCents: -5_000, result: 'carried' });
       const next = await lines('2026-09');
       expect(next.get(groceries)?.carryInCents).toBe(20_000);
       expect(next.get(dining)?.carryInCents).toBe(-5_000);
@@ -238,7 +238,7 @@ describe('BudgetLifecycleService', () => {
       await lifecycle.close('2026-08');
       await spend('2026-09-02', dining, 1_000); // 20_000 − 25_000 − 1_000 → -6_000
       const outcomes = await lifecycle.close('2026-09');
-      expect(outcomes.find((o) => o.subcategoryId === dining)?.remainingCents).toBe(-6_000);
+      expect(outcomes.find((o) => o.categoryId === dining)?.remainingCents).toBe(-6_000);
       await lifecycle.close('2026-10'); // 20_000 − 6_000 → 14_000
       expect((await lines('2026-11')).get(dining)?.carryInCents).toBe(14_000);
     });
@@ -246,26 +246,26 @@ describe('BudgetLifecycleService', () => {
     it('releases a fund balance to savings when the next month has no fund line for it', async () => {
       await lifecycle.ensureMonth('2026-08');
       await spend('2026-08-11', dining, 30_000); // -10_000
-      await prisma.subcategory.update({ where: { id: dining }, data: { archivedAt: new Date() } });
+      await prisma.category.update({ where: { id: dining }, data: { archivedAt: new Date() } });
       const outcomes = await lifecycle.close('2026-08');
 
       expect((await lines('2026-09')).has(dining)).toBe(false);
-      expect(outcomes.find((o) => o.subcategoryId === dining)).toMatchObject({ remainingCents: -10_000, result: 'released' });
-      expect((await entries('2026-08')).filter((e) => e.subcategoryId === dining)).toEqual([
-        { kind: 'fund_contribution', subcategoryId: dining, amountCents: -20_000 },
-        { kind: 'fund_release', subcategoryId: dining, amountCents: -10_000 },
+      expect(outcomes.find((o) => o.categoryId === dining)).toMatchObject({ remainingCents: -10_000, result: 'released' });
+      expect((await entries('2026-08')).filter((e) => e.categoryId === dining)).toEqual([
+        { kind: 'fund_contribution', categoryId: dining, amountCents: -20_000 },
+        { kind: 'fund_release', categoryId: dining, amountCents: -10_000 },
       ]);
     });
 
-    it('releases a fund balance when the subcategory becomes regular', async () => {
+    it('releases a fund balance when the category becomes regular', async () => {
       await lifecycle.close('2026-08'); // groceries carries 50_000 into September
       await prisma.$transaction((tx) => lifecycle.applyFundToOpenMonths(tx, groceries, false));
       await spend('2026-09-03', groceries, 10_000);
       await lifecycle.close('2026-09');
 
-      expect((await entries('2026-09')).filter((e) => e.subcategoryId === groceries)).toEqual([
-        { kind: 'spending', subcategoryId: groceries, amountCents: -10_000 },
-        { kind: 'fund_release', subcategoryId: groceries, amountCents: 50_000 },
+      expect((await entries('2026-09')).filter((e) => e.categoryId === groceries)).toEqual([
+        { kind: 'spending', categoryId: groceries, amountCents: -10_000 },
+        { kind: 'fund_release', categoryId: groceries, amountCents: 50_000 },
       ]);
       expect((await lines('2026-10')).get(groceries)?.carryInCents).toBe(0);
     });
@@ -297,7 +297,7 @@ describe('BudgetLifecycleService', () => {
       await spend('2026-07-31', groceries, 10_000);
       await spend('2026-09-01', groceries, 10_000);
       const outcomes = await lifecycle.close('2026-08');
-      expect(outcomes.find((o) => o.subcategoryId === groceries)?.remainingCents).toBe(50_000);
+      expect(outcomes.find((o) => o.categoryId === groceries)?.remainingCents).toBe(50_000);
       expect((await entries('2026-08')).some((e) => e.kind === 'income')).toBe(false);
     });
 
@@ -384,7 +384,7 @@ describe('BudgetLifecycleService', () => {
   });
 
   describe('deficit payments', () => {
-    const lineFor = async (month: string, subcategoryId: number) => (await lines(month)).get(subcategoryId)!;
+    const lineFor = async (month: string, categoryId: number) => (await lines(month)).get(categoryId)!;
 
     /** August: savings 30_000; dining over by 10_000 → carries -10_000. September dining: 10_000 − 16_000 = -6_000. */
     async function withSavingsAndDeficit() {
@@ -407,7 +407,7 @@ describe('BudgetLifecycleService', () => {
       expect((await lineFor('2026-09', dining)).deficitPaidCents).toBe(6_000);
       expect(await balance()).toBe(24_000);
       const entry = await prisma.savingsEntry.findFirstOrThrow({ where: { kind: 'deficit_payment' } });
-      expect(entry).toMatchObject({ month: '2026-09', subcategoryId: dining, budgetLineId: line.id, amountCents: -6_000 });
+      expect(entry).toMatchObject({ month: '2026-09', categoryId: dining, budgetLineId: line.id, amountCents: -6_000 });
     });
 
     it('pays only what savings holds and leaves the rest as debt', async () => {
@@ -476,11 +476,11 @@ describe('BudgetLifecycleService', () => {
       expect((await lines('2026-09')).get(groceries)?.fund).toBe(false);
     });
 
-    it('adds a line for a new subcategory to every open month', async () => {
+    it('adds a line for a new category to every open month', async () => {
       await lifecycle.close('2026-08');
       await lifecycle.ensureMonth('2026-10');
-      const snacks = await prisma.subcategory.create({
-        data: { categoryId: foodId, name: 'Snacks', defaultLimitCents: 2_500, fund: true },
+      const snacks = await prisma.category.create({
+        data: { groupId: foodId, name: 'Snacks', defaultLimitCents: 2_500, fund: true },
       });
       await prisma.$transaction((tx) => lifecycle.addLineToOpenMonths(tx, snacks.id));
 

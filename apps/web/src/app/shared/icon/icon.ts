@@ -4,7 +4,7 @@ export type IconName =
   | 'overview'
   | 'transactions'
   | 'budget'
-  | 'categories'
+  | 'groups'
   | 'savings'
   | 'chevron-left'
   | 'chevron-right'

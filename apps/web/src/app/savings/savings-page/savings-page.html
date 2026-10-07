@@ -31,10 +31,10 @@
           <p class="hint">Each fund keeps its own balance. Shown as of the latest closed month, including deficits paid since.</p>
         </div>
         <ul class="funds list-reset">
-          @for (fund of s.funds; track fund.subcategoryId) {
+          @for (fund of s.funds; track fund.categoryId) {
             <li class="card-deep fund">
-              <span class="fund-name">{{ fund.subcategoryName }}</span>
-              <span class="muted small">{{ fund.categoryName }}</span>
+              <span class="fund-name">{{ fund.categoryName }}</span>
+              <span class="muted small">{{ fund.groupName }}</span>
               <span class="money fund-balance" [class.negative]="fund.balanceCents < 0">
                 @if (fund.balanceCents < 0) {
                   <app-icon name="warning" [size]="14" /><span class="visually-hidden">Deficit</span>
@@ -83,10 +83,10 @@
                 @for (entry of group.entries; track entry.id) {
                   <tr>
                     <td>
-                      @if (entry.subcategoryName) {
-                        {{ entry.subcategoryName }} <span class="muted">· {{ entry.categoryName }}</span>
+                      @if (entry.categoryName) {
+                        {{ entry.categoryName }} <span class="muted">· {{ entry.groupName }}</span>
                       } @else {
-                        <span class="muted">Removed subcategory</span>
+                        <span class="muted">Removed category</span>
                       }
                     </td>
                     <td>

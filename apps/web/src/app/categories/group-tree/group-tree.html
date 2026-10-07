@@ -10,52 +10,52 @@
     </label>
   </div>
 
-  <app-new-category-form (created)="onCreated($event)" />
+  <app-new-group-form (created)="onCreated($event)" />
 
-  @if (categories.error() && !categories.hasValue()) {
+  @if (groups.error() && !groups.hasValue()) {
     <p class="form-error" role="alert"><app-icon name="warning" />{{ loadError() }}</p>
   }
 
-  @if (categories.hasValue()) {
+  @if (groups.hasValue()) {
     <div class="split">
       <div class="card tree-card">
-        <p id="tree-label" class="label">Categories and subcategories</p>
+        <p id="tree-label" class="label">Groups and categories</p>
         <p class="hint">Use arrow keys to move, Right/Left to expand or collapse, and select an item to edit it.</p>
         @if (visible().length) {
           <ul ngTree #tree="ngTree" class="tree list-reset" aria-labelledby="tree-label" selectionMode="follow" [(value)]="selection">
-            @for (category of visible(); track category.id) {
+            @for (group of visible(); track group.id) {
               <li
                 ngTreeItem
-                #categoryItem="ngTreeItem"
+                #groupItem="ngTreeItem"
                 [parent]="tree"
-                [value]="'c-' + category.id"
-                [label]="category.name"
+                [value]="'c-' + group.id"
+                [label]="group.name"
                 [expanded]="true"
                 class="node"
               >
                 <span class="node-row">
-                  <span class="node-name">{{ category.name }}</span>
-                  @if (category.kind === 'income') {
+                  <span class="node-name">{{ group.name }}</span>
+                  @if (group.kind === 'income') {
                     <span class="chip">Income</span>
                   }
-                  @if (category.archivedAt) {
+                  @if (group.archivedAt) {
                     <span class="chip">Archived</span>
                   }
                 </span>
-                @if (category.subcategories.length) {
-                  <ul role="group" class="group list-reset">
-                    <ng-template ngTreeItemGroup [ownedBy]="categoryItem" #group="ngTreeItemGroup">
-                      @for (sub of category.subcategories; track sub.id) {
-                        <li ngTreeItem [parent]="group" [value]="'s-' + sub.id" [label]="sub.name" class="node leaf">
+                @if (group.categories.length) {
+                  <ul role="group" class="children list-reset">
+                    <ng-template ngTreeItemGroup [ownedBy]="groupItem" #children="ngTreeItemGroup">
+                      @for (category of group.categories; track category.id) {
+                        <li ngTreeItem [parent]="children" [value]="'s-' + category.id" [label]="category.name" class="node leaf">
                           <span class="node-row">
-                            <span class="node-name">{{ sub.name }}</span>
-                            @if (category.kind === 'expense') {
-                              <span class="money muted small">{{ sub.defaultLimitCents | money }}</span>
+                            <span class="node-name">{{ category.name }}</span>
+                            @if (group.kind === 'expense') {
+                              <span class="money muted small">{{ category.defaultLimitCents | money }}</span>
                             }
-                            @if (sub.fund) {
+                            @if (category.fund) {
                               <span class="chip chip-green">Fund</span>
                             }
-                            @if (sub.archivedAt) {
+                            @if (category.archivedAt) {
                               <span class="chip">Archived</span>
                             }
                           </span>
@@ -68,41 +68,41 @@
             }
           </ul>
         } @else {
-          <p class="empty">No categories yet. Add one above.</p>
+          <p class="empty">No groups yet. Add one above.</p>
         }
       </div>
 
       <section class="card details" aria-live="polite" aria-label="Selected item">
         @switch (selected()?.kind) {
+          @case ('group') {
+            @let s = groupSelection();
+            @if (s) {
+              <app-group-editor [group]="s.group" [index]="s.index" [count]="s.count" (changed)="groups.reload()" />
+            }
+          }
           @case ('category') {
             @let s = categorySelection();
             @if (s) {
-              <app-category-editor [category]="s.category" [index]="s.index" [count]="s.count" (changed)="categories.reload()" />
-            }
-          }
-          @case ('subcategory') {
-            @let s = subcategorySelection();
-            @if (s) {
-              <app-subcategory-editor
-                [subcategory]="s.subcategory"
+              <app-category-editor
+                [category]="s.category"
                 [parent]="s.parent"
-                [categories]="all()"
+                [groups]="all()"
                 [index]="s.index"
                 [count]="s.count"
-                (changed)="categories.reload()"
+                (changed)="groups.reload()"
               />
             }
           }
           @default {
             <div class="placeholder">
-              <app-icon name="categories" [size]="28" />
-              <p>Select a category or subcategory to rename it, make a subcategory a fund, reorder, or archive it.</p>
+              <app-icon name="groups" [size]="28" />
+              <p>Select a group or category to rename it, make a category a fund, reorder, or archive it.</p>
             </div>
           }
         }
       </section>
     </div>
-  } @else if (categories.isLoading()) {
+  } @else if (groups.isLoading()) {
     <p class="loading" role="status">Loading categories…</p>
   }
 </div>

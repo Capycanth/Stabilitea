@@ -1,6 +1,6 @@
 import { Component, computed, input, model } from '@angular/core';
 import { Listbox, Option } from '@angular/aria/listbox';
-import type { CategoryDto, TransactionFilters, TransactionType } from '@stabilitea/shared';
+import type { GroupDto, TransactionFilters, TransactionType } from '@stabilitea/shared';
 
 type TypeChoice = 'all' | TransactionType;
 
@@ -16,41 +16,41 @@ type TypeChoice = 'all' | TransactionType;
   `,
 })
 export class TransactionFilterBar {
-  readonly categories = input.required<CategoryDto[]>();
+  readonly groups = input.required<GroupDto[]>();
   readonly filters = model.required<TransactionFilters>();
 
-  protected readonly visibleCategories = computed(() =>
-    this.categories().filter((c) => {
+  protected readonly visibleGroups = computed(() =>
+    this.groups().filter((c) => {
       const type = this.filters().type;
       return !type || c.kind === type;
     }),
   );
 
   protected readonly typeValue = computed<TypeChoice[]>(() => [this.filters().type ?? 'all']);
+  protected readonly groupValue = computed(() => [this.filters().groupId ?? 0]);
   protected readonly categoryValue = computed(() => [this.filters().categoryId ?? 0]);
-  protected readonly subcategoryValue = computed(() => [this.filters().subcategoryId ?? 0]);
 
-  protected readonly selectedCategory = computed(
-    () => this.categories().find((c) => c.id === this.filters().categoryId) ?? null,
+  protected readonly selectedGroup = computed(
+    () => this.groups().find((c) => c.id === this.filters().groupId) ?? null,
   );
 
   protected selectType(value: TypeChoice[]): void {
     const choice = value[0] ?? 'all';
     const type = choice === 'all' ? undefined : choice;
     this.filters.update((f) => {
-      const category = this.categories().find((c) => c.id === f.categoryId);
-      const keepCategory = !type || category?.kind === type;
-      return keepCategory ? { ...f, type } : { type };
+      const group = this.groups().find((c) => c.id === f.groupId);
+      const keepGroup = !type || group?.kind === type;
+      return keepGroup ? { ...f, type } : { type };
     });
+  }
+
+  protected selectGroup(value: number[]): void {
+    const groupId = value[0] || undefined;
+    this.filters.update((f) => ({ type: f.type, groupId }));
   }
 
   protected selectCategory(value: number[]): void {
     const categoryId = value[0] || undefined;
-    this.filters.update((f) => ({ type: f.type, categoryId }));
-  }
-
-  protected selectSubcategory(value: number[]): void {
-    const subcategoryId = value[0] || undefined;
-    this.filters.update((f) => ({ ...f, subcategoryId }));
+    this.filters.update((f) => ({ ...f, categoryId }));
   }
 }

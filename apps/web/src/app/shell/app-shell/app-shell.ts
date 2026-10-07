@@ -33,7 +33,7 @@ export class AppShell {
       { label: 'Overview', icon: 'overview', link: `/${month}`, exact: true },
       { label: 'Transactions', icon: 'transactions', link: `/${month}/transactions`, exact: false },
       { label: 'Budget', icon: 'budget', link: `/${month}/budget`, exact: false },
-      { label: 'Categories', icon: 'categories', link: '/categories', exact: false },
+      { label: 'Categories', icon: 'groups', link: '/categories', exact: false },
       { label: 'Savings', icon: 'savings', link: '/savings', exact: false },
       { label: 'Reports', icon: 'report', link: '/reports', exact: false },
     ];
