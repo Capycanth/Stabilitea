@@ -8,10 +8,9 @@ import { CategoryApi } from './category-api';
 interface NewCategoryModel {
   name: string;
   kind: CategoryKind;
-  rollover: boolean;
 }
 
-const initial = (): NewCategoryModel => ({ name: '', kind: 'expense', rollover: false });
+const initial = (): NewCategoryModel => ({ name: '', kind: 'expense' });
 
 @Component({
   selector: 'app-new-category-form',
@@ -31,12 +30,6 @@ const initial = (): NewCategoryModel => ({ name: '', kind: 'expense', rollover: 
             <option value="income">Income</option>
           </select>
         </div>
-        @if (model().kind === 'expense') {
-          <label class="checkbox rollover">
-            <input type="checkbox" [formField]="categoryForm.rollover" />
-            Roll over leftovers
-          </label>
-        }
         <button type="submit" class="btn btn-primary" [disabled]="categoryForm().submitting()">
           <app-icon name="plus" />Add
         </button>
@@ -55,7 +48,6 @@ const initial = (): NewCategoryModel => ({ name: '', kind: 'expense', rollover: 
     .title { font-size: 1.05rem; margin-bottom: 10px; }
     .fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
     .grow { flex: 1 1 200px; }
-    .rollover { min-height: 40px; }
   `,
 })
 export class NewCategoryForm {
@@ -74,9 +66,9 @@ export class NewCategoryForm {
   );
 
   private async save(): Promise<TreeValidationResult> {
-    const { name, kind, rollover } = this.model();
+    const { name, kind } = this.model();
     try {
-      const category = await this.api.create({ name: name.trim(), kind, rollover: kind === 'expense' && rollover });
+      const category = await this.api.create({ name: name.trim(), kind });
       this.categoryForm().reset(initial());
       this.created.emit(category);
       return undefined;

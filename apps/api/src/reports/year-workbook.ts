@@ -15,11 +15,10 @@ const dollars = (cents: number) => Math.round(cents) / 100;
 
 const STATUS_LABEL: Record<MonthReportStatus, string> = { open: 'Open', closed: 'Closed', 'not budgeted': 'Not budgeted' };
 const OUTCOME_LABEL: Record<CloseOutcome, string> = {
-  carried: 'Carried to next month',
-  'carried-deficit': 'Deficit carried to next month',
-  swept: 'Swept to savings',
-  reset: 'Reset (no rollover)',
-  none: '—',
+  regular: 'Spent from savings',
+  carried: 'Fund balance carried',
+  'carried-deficit': 'Fund deficit carried',
+  released: 'Fund balance released to savings',
   open: 'Month open',
 };
 
@@ -78,13 +77,15 @@ export async function renderYearWorkbook(report: YearReport): Promise<Buffer> {
   styleHeader(headline);
   const rows: [string, number | string][] = [
     ['Income', dollars(t.incomeCents)],
-    ['Planned income', dollars(t.plannedIncomeCents)],
     ['Expenses', dollars(t.expenseCents)],
     ['Net (income − expenses)', dollars(t.netCents)],
+    ['Planned income', dollars(t.plannedIncomeCents)],
     ['Budgeted (sum of monthly limits)', dollars(t.budgetedCents)],
-    ['Swept into savings', dollars(t.sweptCents)],
-    ['Paid from savings to cover deficits', dollars(t.deficitPaidCents)],
+    ['Moved into funds', dollars(t.fundContributionCents)],
+    ['Released from funds to savings', dollars(t.fundReleaseCents)],
+    ['Paid from savings to cover fund deficits', dollars(t.deficitPaidCents)],
     ['Savings balance on Jan 1', dollars(t.savingsBalanceStartCents)],
+    ['Change in savings', dollars(t.savingsChangeCents)],
     ['Savings balance at year end', dollars(t.savingsBalanceEndCents)],
     ['Deficit payments made', t.deficitPaymentCount],
     ['Months closed', `${t.monthsClosed} of 12`],
@@ -125,35 +126,42 @@ export async function renderYearWorkbook(report: YearReport): Promise<Buffer> {
   const monthlyHeaders = [
     'Month',
     'Status',
-    'Planned income',
     'Income',
     'Expenses',
     'Net',
+    'Planned income',
     'Budgeted',
-    'Carry-in',
-    'Swept to savings',
-    'Paid from savings (deficits)',
+    'Moved into funds',
+    'Released from funds',
+    'Paid from savings (fund deficits)',
+    'Change in savings',
     'Savings balance (end of month)',
   ];
   monthly.columns = [{ width: 18 }, { width: 14 }, ...monthlyHeaders.slice(2).map(() => ({ width: 17 }))];
-  addTitle(monthly, `${report.year} month by month`, 'Deficits paid from savings are highlighted.', monthlyHeaders.length);
+  addTitle(
+    monthly,
+    `${report.year} month by month`,
+    'Savings change = income − regular spending − money moved into funds + fund releases − fund deficits paid. Months with a deficit payment are highlighted.',
+    monthlyHeaders.length,
+  );
   styleHeader(monthly.addRow(monthlyHeaders));
   const firstDataRow = monthly.rowCount + 1;
   for (const m of report.months) {
     const row = monthly.addRow([
       monthLabel(m.month),
       STATUS_LABEL[m.status],
-      dollars(m.plannedIncomeCents),
       dollars(m.incomeCents),
       dollars(m.expenseCents),
       dollars(m.netCents),
+      dollars(m.plannedIncomeCents),
       dollars(m.budgetedCents),
-      dollars(m.carryInCents),
-      dollars(m.sweptCents),
+      dollars(m.fundContributionCents),
+      dollars(m.fundReleaseCents),
       dollars(m.deficitPaidCents),
+      dollars(m.savingsChangeCents),
       dollars(m.savingsBalanceEndCents),
     ]);
-    for (let i = 3; i <= 11; i++) row.getCell(i).numFmt = MONEY;
+    for (let i = 3; i <= 12; i++) row.getCell(i).numFmt = MONEY;
     if (m.status === 'not budgeted') row.getCell(2).font = { color: { argb: MUTED } };
     if (m.deficitPaidCents > 0) {
       row.eachCell((cell) => (cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ORANGE_SOFT } }));
@@ -164,11 +172,10 @@ export async function renderYearWorkbook(report: YearReport): Promise<Buffer> {
   const totalRow = monthly.addRow([
     'Total',
     '',
-    // Carry-ins aren't additive across months, so that column has no total.
-    ...[3, 4, 5, 6, 7, 8, 9, 10].map((i) => (i === 8 ? '' : { formula: `SUM(${col(i)}${firstDataRow}:${col(i)}${lastDataRow})` })),
-    { formula: `${col(11)}${lastDataRow}` },
+    ...[3, 4, 5, 6, 7, 8, 9, 10, 11].map((i) => ({ formula: `SUM(${col(i)}${firstDataRow}:${col(i)}${lastDataRow})` })),
+    { formula: `${col(12)}${lastDataRow}` },
   ]);
-  for (let i = 3; i <= 11; i++) totalRow.getCell(i).numFmt = MONEY;
+  for (let i = 3; i <= 12; i++) totalRow.getCell(i).numFmt = MONEY;
   styleTotal(totalRow);
 
   // ---------------------------------------------------------------- Budget vs actual
@@ -178,11 +185,11 @@ export async function renderYearWorkbook(report: YearReport): Promise<Buffer> {
     'Month',
     'Category',
     'Subcategory',
-    'Rolls over',
-    'Limit',
-    'Carry-in',
+    'Type',
+    'Limit / contribution',
+    'Fund balance in',
     'Paid from savings',
-    'Budget (limit + carry-in + paid)',
+    'Available (limit + balance in + paid)',
     'Spent',
     'Remaining',
     'At close',
@@ -203,7 +210,7 @@ export async function renderYearWorkbook(report: YearReport): Promise<Buffer> {
   addTitle(
     detail,
     `${report.year} budget vs. actual`,
-    'Negative carry-ins are deficits rolled over from the previous month. Rows where a deficit was paid from savings are highlighted.',
+    'Regular lines: spending comes out of savings; the limit is a target. Funds: the limit moves from savings into the fund, and the remaining balance carries into next month (negative = deficit). Rows where a deficit was paid from savings are highlighted.',
     detailHeaders.length,
   );
   const detailHeaderRow = detail.addRow(detailHeaders);
@@ -214,7 +221,7 @@ export async function renderYearWorkbook(report: YearReport): Promise<Buffer> {
         monthLabel(m.month),
         line.categoryName,
         line.subcategoryName,
-        line.rollover ? 'Yes' : 'No',
+        line.fund ? 'Fund' : 'Regular',
         dollars(line.limitCents),
         dollars(line.carryInCents),
         dollars(line.deficitPaidCents),

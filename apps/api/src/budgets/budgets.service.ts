@@ -54,7 +54,7 @@ export class BudgetsService {
           carryInCents: line.carryInCents,
           deficitPaidCents: line.deficitPaidCents,
           availableCents,
-          rollover: line.rollover,
+          fund: line.fund,
           spentCents,
           remainingCents: availableCents - spentCents,
         });

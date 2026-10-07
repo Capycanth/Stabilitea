@@ -66,7 +66,7 @@ import { BudgetLineRow } from './budget-line-row';
               {{ closed() ? monthName(b.month) + ' is closed' : 'Close ' + monthName(b.month) }}
             </h2>
             @if (closed()) {
-              <p class="small">Rollovers and savings sweeps were applied. Reopen to make corrections, then close again.</p>
+              <p class="small">Income, spending and fund balances were settled into savings. Reopen to make corrections, then close again.</p>
               <div>
                 <button type="button" class="btn" [disabled]="!b.canReopen || busy()" (click)="reopen()" aria-describedby="reopen-hint">
                   <app-icon name="unlock" />Reopen {{ monthName(b.month) }}
@@ -76,9 +76,7 @@ import { BudgetLineRow } from './budget-line-row';
                 <p id="reopen-hint" class="hint">Reopen {{ nextLabel() }} first. Months reopen newest-first.</p>
               }
             } @else {
-              <p class="small">
-                Rollover categories carry their balance into {{ nextLabel() }}, even if it's negative; other leftovers are swept to savings.
-              </p>
+              <p class="small">{{ closeExplanation() }}</p>
               <div>
                 <button type="button" class="btn btn-primary" [disabled]="!b.canClose || busy()" (click)="close()" aria-describedby="close-hint">
                   <app-icon name="lock" />Close {{ monthName(b.month) }}
@@ -96,9 +94,9 @@ import { BudgetLineRow } from './budget-line-row';
           <span>
             Savings available: <strong class="money">{{ b.savingsBalanceCents | money }}</strong>.
             @if (hasPayableDeficit()) {
-              Rollover lines that are over budget can be paid down from savings.
+              Funds that are over budget can be paid down from savings.
             } @else {
-              Deficits in rollover categories carry into next month and can be paid from savings.
+              Regular subcategories spend from savings; funds keep their own balance, and a fund deficit can be paid from savings.
             }
           </span>
         </p>
@@ -110,7 +108,7 @@ import { BudgetLineRow } from './budget-line-row';
               <tr>
                 <th scope="col">Subcategory</th>
                 <th scope="col">Limit</th>
-                <th scope="col" class="end">Carry-in</th>
+                <th scope="col" class="end">Balance in</th>
                 <th scope="col" class="end">From savings</th>
                 <th scope="col" class="end">Spent</th>
                 <th scope="col" class="end">Remaining</th>
@@ -121,11 +119,6 @@ import { BudgetLineRow } from './budget-line-row';
                 <tr class="group-row">
                   <th scope="rowgroup" colspan="6">
                     <span>{{ group.categoryName }}</span>
-                    @if (group.lines[0]?.rollover) {
-                      <span class="chip chip-green"><app-icon name="rollover" [size]="13" />Rolls over</span>
-                    } @else {
-                      <span class="chip">Sweeps to savings</span>
-                    }
                   </th>
                 </tr>
                 @for (line of group.lines; track line.id) {
@@ -150,7 +143,7 @@ import { BudgetLineRow } from './budget-line-row';
               <tr>
                 <th scope="row">Total</th>
                 <td class="money" data-label="Limit">{{ totals().limit | money }}</td>
-                <td class="end money" data-label="Carry-in">{{ totals().carryIn | money }}</td>
+                <td class="end money" data-label="Balance in">{{ totals().carryIn | money }}</td>
                 <td class="end money" data-label="From savings">{{ totals().deficitPaid | money }}</td>
                 <td class="end money" data-label="Spent">{{ totals().spent | money }}</td>
                 <td class="end money" data-label="Remaining">{{ totals().remaining | money }}</td>
@@ -253,7 +246,12 @@ export class BudgetEditor {
       this.budget.hasValue() &&
       !this.closed() &&
       this.budget.value().savingsBalanceCents > 0 &&
-      this.budget.value().categories.some((g) => g.lines.some((l) => l.rollover && l.remainingCents < 0)),
+      this.budget.value().categories.some((g) => g.lines.some((l) => l.fund && l.remainingCents < 0)),
+  );
+
+  protected readonly closeExplanation = computed(
+    () =>
+      `Closing adds this month's income to savings and takes out regular spending and fund contributions. Each fund's balance carries into ${this.nextLabel()}, even if it's negative.`,
   );
 
   private readonly incomeModel = linkedSignal({
@@ -319,17 +317,17 @@ export class BudgetEditor {
     const month = this.month();
     const ok = await this.confirm().ask({
       title: `Close ${monthLabel(month)}?`,
-      message: `Rollover categories carry their balance into ${this.nextLabel()}, even if it's negative; other leftovers are swept to savings. You can reopen it later.`,
+      message: `${this.closeExplanation()} You can reopen it later.`,
       confirmLabel: `Close ${monthName(month)}`,
     });
-    if (ok) await this.run(() => this.api.close(month), `${monthLabel(month)} closed. Rollovers and savings applied.`);
+    if (ok) await this.run(() => this.api.close(month), `${monthLabel(month)} closed. Savings and funds updated.`);
   }
 
   protected async reopen(): Promise<void> {
     const month = this.month();
     const ok = await this.confirm().ask({
       title: `Reopen ${monthLabel(month)}?`,
-      message: `This removes ${monthName(month)}'s savings sweeps and resets ${this.nextLabel()}'s carry-ins until you close it again. Deficits already paid from savings stay recorded.`,
+      message: `This removes ${monthName(month)}'s income, spending and fund entries from savings and resets ${this.nextLabel()}'s fund balances until you close it again. Deficits already paid from savings stay recorded.`,
       confirmLabel: `Reopen ${monthName(month)}`,
     });
     if (ok) await this.run(() => this.api.reopen(month), `${monthLabel(month)} reopened.`);

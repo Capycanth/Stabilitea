@@ -8,8 +8,11 @@ Angular best-practices file; follow it for everything under `apps/web`).
 
 - `packages/shared` — API contract types (`contracts.ts`) plus pure month and money helpers. Build it first.
 - `apps/api` — NestJS 12 (ESM) + Prisma 7 (`prisma-client` generator, better-sqlite3 adapter) + SQLite.
-  - Month rules (auto-copy, close with negative rollovers, reopen, deficit payments) live only in
-    `src/budgets/budget-lifecycle.service.ts` and are covered by its spec.
+  - Month rules (auto-copy, close, reopen, deficit payments) live only in
+    `src/budgets/budget-lifecycle.service.ts`; the close math is the pure `planClose()` there. Covered by its spec.
+  - Savings model: closing writes `income` (+), `spending` (− regular subcategories), `fund_contribution`
+    (− fund limits) and `fund_release` entries; funds (`subcategory.fund`) carry their balance, positive or
+    negative, into next month. Invariant: savings + fund balances = total income − total spending.
   - The yearly Excel report is `src/reports/` (`year-report.ts` gathers data, `year-workbook.ts` renders with exceljs).
   - Every error leaving `/api` is an `ApiErrorBody` (`VALIDATION_FAILED` with `fieldErrors`, `MONTH_CLOSED`, `NOT_FOUND`, `CONFLICT`).
 - `apps/web` — Angular 22.1: standalone, zoneless, OnPush by default, Signal Forms, `httpResource()`, `@angular/aria`.

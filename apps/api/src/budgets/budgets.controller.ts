@@ -27,7 +27,7 @@ export class BudgetsController {
     return this.budgets.updateLineLimit(month, lineId, body.limitCents);
   }
 
-  /** Cover a rollover line's deficit from savings (as much as the balance allows). */
+  /** Cover a fund line's deficit from savings (as much as the balance allows). */
   @Post('lines/:lineId/pay-deficit')
   @HttpCode(200)
   payDeficit(

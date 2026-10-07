@@ -56,8 +56,6 @@ type Selection =
                       <span class="node-name">{{ category.name }}</span>
                       @if (category.kind === 'income') {
                         <span class="chip">Income</span>
-                      } @else if (category.rollover) {
-                        <span class="chip chip-green">Rolls over</span>
                       }
                       @if (category.archivedAt) {
                         <span class="chip">Archived</span>
@@ -72,6 +70,9 @@ type Selection =
                                 <span class="node-name">{{ sub.name }}</span>
                                 @if (category.kind === 'expense') {
                                   <span class="money muted small">{{ sub.defaultLimitCents | money }}</span>
+                                }
+                                @if (sub.fund) {
+                                  <span class="chip chip-green">Fund</span>
                                 }
                                 @if (sub.archivedAt) {
                                   <span class="chip">Archived</span>
@@ -114,7 +115,7 @@ type Selection =
               @default {
                 <div class="placeholder">
                   <app-icon name="categories" [size]="28" />
-                  <p>Select a category or subcategory to rename it, change rollover, reorder, or archive it.</p>
+                  <p>Select a category or subcategory to rename it, make a subcategory a fund, reorder, or archive it.</p>
                 </div>
               }
             }

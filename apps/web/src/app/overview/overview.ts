@@ -39,8 +39,8 @@ import { CategoryCard } from './category-card';
           <section class="banner" aria-labelledby="close-banner-title">
             <app-icon name="info" />
             <div class="banner-text">
-              <h2 id="close-banner-title">Close {{ monthName(s.month) }} to apply rollovers.</h2>
-              <p>Rollover categories carry their balance into {{ nextMonthLabel() }}, even if it's negative; other leftovers are swept to savings.</p>
+              <h2 id="close-banner-title">Close {{ monthName(s.month) }} to update savings.</h2>
+              <p>Closing adds its income to savings, takes out regular spending and fund contributions, and carries fund balances into {{ nextMonthLabel() }}.</p>
             </div>
             <button type="button" class="btn btn-primary" [disabled]="closing()" (click)="closeMonth()">
               Close {{ monthName(s.month) }}
@@ -50,8 +50,8 @@ import { CategoryCard } from './category-card';
           <section class="banner" aria-labelledby="open-banner-title">
             <app-icon name="info" />
             <div class="banner-text">
-              <h2 id="open-banner-title">Close {{ monthName(openMonth) }} to apply rollovers.</h2>
-              <p>{{ monthLabel(openMonth) }} is still open, so its leftovers haven't carried forward yet.</p>
+              <h2 id="open-banner-title">Close {{ monthName(openMonth) }} to update savings.</h2>
+              <p>{{ monthLabel(openMonth) }} is still open, so its income, spending and fund balances haven't reached savings yet.</p>
             </div>
             <a class="btn" [routerLink]="['/', openMonth]">Go to {{ monthName(openMonth) }}</a>
           </section>
@@ -84,6 +84,19 @@ import { CategoryCard } from './category-card';
                 <app-icon name="warning" [size]="14" /> Spending exceeds income
               } @else {
                 Income minus expenses
+              }
+            </p>
+          </div>
+          <div class="card-deep stat">
+            <p class="stat-label">{{ s.status === 'closed' ? 'Change in savings' : 'Savings change if closed' }}</p>
+            <p class="stat-value money" [class.income]="s.savingsChangeCents >= 0" [class.negative]="s.savingsChangeCents < 0">
+              {{ s.savingsChangeCents | money }}
+            </p>
+            <p class="stat-sub muted">
+              @if (s.fundContributionCents > 0) {
+                After <span class="money">{{ s.fundContributionCents | money }}</span> into funds
+              } @else {
+                Income minus regular spending
               }
             </p>
           </div>
@@ -159,14 +172,14 @@ export class Overview {
     const month = this.month();
     const ok = await this.dialog().ask({
       title: `Close ${monthLabel(month)}?`,
-      message: `Rollover categories carry their balance into ${monthLabel(addMonths(month, 1))}, even if it's negative; other leftovers are swept to savings. You can reopen it later to make corrections.`,
+      message: `Closing adds this month's income to savings and takes out regular spending and fund contributions. Each fund's balance carries into ${monthLabel(addMonths(month, 1))}, even if it's negative. You can reopen it later to make corrections.`,
       confirmLabel: `Close ${monthName(month)}`,
     });
     if (!ok) return;
     this.closing.set(true);
     try {
       await this.budgetApi.close(month);
-      this.notifier.success(`${monthLabel(month)} closed. Rollovers and savings applied.`);
+      this.notifier.success(`${monthLabel(month)} closed. Savings and funds updated.`);
       this.summary.reload();
     } catch (error) {
       this.notifier.error(errorMessage(error));

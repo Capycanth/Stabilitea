@@ -11,11 +11,6 @@ import { MoneyPipe } from '../shared/money-pipe';
   template: `
     <div class="head">
       <h3 [id]="headingId()">{{ category().name }}</h3>
-      @if (category().rollover) {
-        <span class="chip chip-green"><app-icon name="rollover" [size]="13" />Rolls over</span>
-      } @else {
-        <span class="chip">Sweeps to savings</span>
-      }
     </div>
     <p class="totals">
       <span class="money spent">{{ category().spentCents | money }}</span>
@@ -30,7 +25,12 @@ import { MoneyPipe } from '../shared/money-pipe';
       @for (sub of category().subcategories; track sub.id) {
         <li>
           <div class="sub-head">
-            <span>{{ sub.name }}</span>
+            <span class="sub-name">
+              {{ sub.name }}
+              @if (sub.fund) {
+                <span class="chip chip-green fund"><app-icon name="rollover" [size]="12" />Fund</span>
+              }
+            </span>
             <span class="money muted">{{ sub.spentCents | money }}</span>
           </div>
           <app-budget-progress [compact]="true" [spentCents]="sub.spentCents" [availableCents]="sub.limitCents + sub.carryInCents + sub.deficitPaidCents" />
@@ -46,6 +46,8 @@ import { MoneyPipe } from '../shared/money-pipe';
     .spent { font-size: 1.35rem; font-weight: 650; }
     .subs { list-style: none; margin: 4px 0 0; padding: 12px 0 0; border-top: 1px solid var(--st-line); display: grid; gap: 12px; }
     .sub-head { display: flex; justify-content: space-between; gap: 8px; font-size: 0.9rem; font-weight: 500; }
+    .sub-name { display: inline-flex; align-items: center; gap: 6px; }
+    .fund { font-size: 0.72rem; padding-block: 1px; }
   `,
 })
 export class CategoryCard {

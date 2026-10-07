@@ -19,6 +19,7 @@ function toSubcategoryDto(sub: Subcategory & { _count?: { transactions: number }
     categoryId: sub.categoryId,
     name: sub.name,
     defaultLimitCents: sub.defaultLimitCents,
+    fund: sub.fund,
     sortOrder: sub.sortOrder,
     archivedAt: sub.archivedAt?.toISOString() ?? null,
     transactionCount: sub._count?.transactions ?? 0,
@@ -53,7 +54,7 @@ export class CategoriesService {
       await this.assertCategoryNameFree(tx, dto.name);
       const count = await tx.category.count();
       const row = await tx.category.create({
-        data: { name: dto.name, kind: dto.kind, rollover: dto.kind === 'expense' && (dto.rollover ?? false), sortOrder: count },
+        data: { name: dto.name, kind: dto.kind, sortOrder: count },
       });
       return this.toDto(row, []);
     });
@@ -67,22 +68,13 @@ export class CategoriesService {
       if (dto.name !== undefined && dto.name !== current.name) {
         await this.assertCategoryNameFree(tx, dto.name, id);
       }
-      if (dto.rollover !== undefined && current.kind !== 'expense' && dto.rollover) {
-        throw fieldError('rollover', 'Only expense categories can roll over');
-      }
-
       await tx.category.update({
         where: { id },
         data: {
           name: dto.name,
-          rollover: dto.rollover,
           archivedAt: dto.archived === undefined ? undefined : dto.archived ? (current.archivedAt ?? new Date()) : null,
         },
       });
-
-      if (dto.rollover !== undefined && dto.rollover !== current.rollover) {
-        await this.lifecycle.applyRolloverToOpenMonths(tx, id, dto.rollover);
-      }
 
       if (dto.archived === false && current.archivedAt) {
         const subs = await tx.subcategory.findMany({ where: { categoryId: id, archivedAt: null } });
@@ -105,9 +97,16 @@ export class CategoriesService {
       const category = await tx.category.findUnique({ where: { id: categoryId } });
       if (!category) throw notFound(`Category ${categoryId} not found`);
       await this.assertSubcategoryNameFree(tx, categoryId, dto.name);
+      if (dto.fund && category.kind !== 'expense') throw fieldError('fund', 'Only expense subcategories can be funds');
       const count = await tx.subcategory.count({ where: { categoryId } });
       const sub = await tx.subcategory.create({
-        data: { categoryId, name: dto.name, defaultLimitCents: dto.defaultLimitCents ?? 0, sortOrder: count },
+        data: {
+          categoryId,
+          name: dto.name,
+          defaultLimitCents: dto.defaultLimitCents ?? 0,
+          fund: dto.fund ?? false,
+          sortOrder: count,
+        },
       });
       await this.lifecycle.addLineToOpenMonths(tx, sub.id);
       return toSubcategoryDto(sub);
@@ -120,7 +119,6 @@ export class CategoriesService {
       if (!current) throw notFound(`Subcategory ${id} not found`);
 
       let categoryId = current.categoryId;
-      let target: Category = current.category;
       if (dto.categoryId !== undefined && dto.categoryId !== current.categoryId) {
         const found = await tx.category.findUnique({ where: { id: dto.categoryId } });
         if (!found) throw fieldError('categoryId', 'Category not found');
@@ -128,7 +126,9 @@ export class CategoriesService {
           throw fieldError('categoryId', `Move to another ${current.category.kind} category`);
         }
         categoryId = found.id;
-        target = found;
+      }
+      if (dto.fund && current.category.kind !== 'expense') {
+        throw fieldError('fund', 'Only expense subcategories can be funds');
       }
 
       const name = dto.name ?? current.name;
@@ -142,16 +142,14 @@ export class CategoriesService {
           name,
           categoryId,
           defaultLimitCents: dto.defaultLimitCents,
+          fund: dto.fund,
           sortOrder: categoryId !== current.categoryId ? await tx.subcategory.count({ where: { categoryId } }) : undefined,
           archivedAt: dto.archived === undefined ? undefined : dto.archived ? (current.archivedAt ?? new Date()) : null,
         },
       });
 
-      if (categoryId !== current.categoryId) {
-        await tx.budgetLine.updateMany({
-          where: { subcategoryId: id, budgetMonth: { status: 'open' } },
-          data: { rollover: target.rollover },
-        });
+      if (dto.fund !== undefined && dto.fund !== current.fund) {
+        await this.lifecycle.applyFundToOpenMonths(tx, id, dto.fund);
       }
 
       if (dto.archived === false && current.archivedAt) {
@@ -196,7 +194,6 @@ export class CategoriesService {
       id: row.id,
       name: row.name,
       kind: row.kind as CategoryKind,
-      rollover: row.rollover,
       sortOrder: row.sortOrder,
       archivedAt: row.archivedAt?.toISOString() ?? null,
       subcategories: subs.map(toSubcategoryDto),

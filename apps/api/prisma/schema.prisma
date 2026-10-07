@@ -18,8 +18,6 @@ model Category {
   name          String
   /// 'income' | 'expense'
   kind          String
-  /// Expense only. true = carry leftover forward; false = sweep to savings.
-  rollover      Boolean       @default(false)
   sortOrder     Int           @default(0) @map("sort_order")
   archivedAt    DateTime?     @map("archived_at")
   subcategories Subcategory[]
@@ -33,6 +31,9 @@ model Subcategory {
   categoryId        Int            @map("category_id")
   name              String
   defaultLimitCents Int            @default(0) @map("default_limit_cents")
+  /// Expense only. true = a fund: keeps its own balance month to month (positive or negative).
+  /// false = regular: spending simply comes out of savings when the month closes.
+  fund              Boolean        @default(false)
   sortOrder         Int            @default(0) @map("sort_order")
   archivedAt        DateTime?      @map("archived_at")
   category          Category       @relation(fields: [categoryId], references: [id])
@@ -63,11 +64,11 @@ model BudgetLine {
   month            String
   subcategoryId    Int            @map("subcategory_id")
   limitCents       Int            @map("limit_cents")
-  /// Leftover rolled in from last month; set only by closing the prior month. Negative for a carried deficit.
+  /// Fund balance brought in from last month; set only by closing the prior month. Negative for a carried deficit.
   carryInCents     Int            @default(0) @map("carry_in_cents")
-  /// Snapshot of the category flag when the line was created.
-  rollover         Boolean
-  /// Total moved from savings to cover this line's deficit this month.
+  /// Snapshot of the subcategory's fund flag for this month (open months follow the subcategory).
+  fund             Boolean        @default(false)
+  /// Total moved from savings to cover this fund line's deficit this month.
   deficitPaidCents Int            @default(0) @map("deficit_paid_cents")
   budgetMonth      BudgetMonth    @relation(fields: [month], references: [month], onDelete: Cascade)
   subcategory      Subcategory    @relation(fields: [subcategoryId], references: [id])
@@ -98,16 +99,18 @@ model Transaction {
 }
 
 /// Savings ledger. The balance is the sum of amount_cents.
+/// Closing a month writes 'income' (+), 'spending' (−, regular subcategories), 'fund_contribution'
+/// (− a fund's limit) and 'fund_release' (± a fund balance with no fund line to carry into).
+/// 'deficit_payment' (−) is written when the user pays a fund's deficit from savings.
 model SavingsEntry {
   id            Int          @id @default(autoincrement())
-  /// 'sweep' (created by closing the month) | 'deficit_payment' (withdrawal covering a line's deficit)
-  kind          String       @default("sweep")
+  kind          String
   /// Month whose close created it, or whose budget line the deficit payment covered.
   month         String
   subcategoryId Int?         @map("subcategory_id")
   /// Budget line a deficit payment was applied to.
   budgetLineId  Int?         @map("budget_line_id")
-  /// Positive for sweeps, negative for deficit payments.
+  /// Positive adds to savings, negative takes from it.
   amountCents   Int          @map("amount_cents")
   createdAt     DateTime     @default(now()) @map("created_at")
   budgetMonth   BudgetMonth  @relation(fields: [month], references: [month])

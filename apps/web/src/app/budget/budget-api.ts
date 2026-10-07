@@ -25,7 +25,7 @@ export class BudgetApi {
     return firstValueFrom(this.http.patch<BudgetMonthDto>(`/api/budgets/${month}/lines/${lineId}`, { limitCents }));
   }
 
-  /** Covers a rollover line's deficit from savings (as much as the balance allows). */
+  /** Covers a fund line's deficit from savings (as much as the balance allows). */
   payDeficit(month: string, lineId: number): Promise<BudgetMonthDto> {
     return firstValueFrom(this.http.post<BudgetMonthDto>(`/api/budgets/${month}/lines/${lineId}/pay-deficit`, {}));
   }

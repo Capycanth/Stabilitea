@@ -2,7 +2,7 @@ import { ConflictException } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createTestDatabase, type TestDatabase } from '../../test/test-db.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { BudgetLifecycleService } from './budget-lifecycle.service.js';
+import { BudgetLifecycleService, planClose } from './budget-lifecycle.service.js';
 
 describe('BudgetLifecycleService', () => {
   let testDb: TestDatabase;
@@ -25,12 +25,11 @@ describe('BudgetLifecycleService', () => {
       data: {
         name: 'Food',
         kind: 'expense',
-        rollover: true,
         sortOrder: 1,
         subcategories: {
           create: [
-            { name: 'Groceries', defaultLimitCents: 50_000 },
-            { name: 'Dining Out', defaultLimitCents: 20_000, sortOrder: 1 },
+            { name: 'Groceries', defaultLimitCents: 50_000, fund: true },
+            { name: 'Dining Out', defaultLimitCents: 20_000, fund: true, sortOrder: 1 },
           ],
         },
       },
@@ -40,7 +39,6 @@ describe('BudgetLifecycleService', () => {
       data: {
         name: 'Housing',
         kind: 'expense',
-        rollover: false,
         sortOrder: 2,
         subcategories: { create: [{ name: 'Rent', defaultLimitCents: 100_000 }] },
       },
@@ -70,6 +68,72 @@ describe('BudgetLifecycleService', () => {
   const spend = (date: string, subcategoryId: number, amountCents: number) =>
     prisma.transaction.create({ data: { date, type: 'expense', subcategoryId, amountCents } });
 
+  const earn = (date: string, amountCents: number) =>
+    prisma.transaction.create({ data: { date, type: 'income', subcategoryId: salary, amountCents } });
+
+  const balance = () => lifecycle.savingsBalance(prisma);
+
+  const entries = async (month: string) =>
+    (await prisma.savingsEntry.findMany({ where: { month }, orderBy: { id: 'asc' } })).map((e) => ({
+      kind: e.kind,
+      subcategoryId: e.subcategoryId,
+      amountCents: e.amountCents,
+    }));
+
+  /** Savings plus every fund balance carried into `month` (plus deficits paid there). */
+  const totalHeld = async (month: string) =>
+    (await balance()) +
+    [...(await lines(month)).values()].filter((l) => l.fund).reduce((sum, l) => sum + l.carryInCents + l.deficitPaidCents, 0);
+
+  describe('planClose', () => {
+    const line = (subcategoryId: number, fund: boolean, limitCents: number, carryInCents = 0, deficitPaidCents = 0) => ({
+      subcategoryId,
+      fund,
+      limitCents,
+      carryInCents,
+      deficitPaidCents,
+    });
+
+    it('moves income in, regular spending out, fund limits out, and carries fund balances', () => {
+      const plan = planClose(
+        [line(1, false, 100_000), line(2, true, 20_000, -5_000)],
+        new Map([[1, 90_000], [2, 25_000]]),
+        new Map([[9, 300_000]]),
+        new Set([2]),
+      );
+      expect(plan.moves).toEqual([
+        { kind: 'income', subcategoryId: 9, amountCents: 300_000 },
+        { kind: 'spending', subcategoryId: 1, amountCents: -90_000 },
+        { kind: 'fund_contribution', subcategoryId: 2, amountCents: -20_000 },
+      ]);
+      expect([...plan.carries]).toEqual([[2, -10_000]]);
+      expect(plan.outcomes).toEqual([
+        { subcategoryId: 1, remainingCents: 10_000, result: 'regular' },
+        { subcategoryId: 2, remainingCents: -10_000, result: 'carried' },
+      ]);
+    });
+
+    it('releases a fund balance when next month has no fund line for it', () => {
+      const plan = planClose([line(2, true, 20_000, 3_000)], new Map(), new Map(), new Set());
+      expect(plan.moves).toContainEqual({ kind: 'fund_release', subcategoryId: 2, amountCents: 23_000 });
+      expect(plan.carries.size).toBe(0);
+      expect(plan.outcomes[0]).toMatchObject({ result: 'released', remainingCents: 23_000 });
+    });
+
+    it('releases money still held on a line that was switched from fund to regular', () => {
+      const plan = planClose([line(1, false, 10_000, -4_000, 1_000)], new Map([[1, 2_000]]), new Map(), new Set());
+      expect(plan.moves).toEqual([
+        { kind: 'spending', subcategoryId: 1, amountCents: -2_000 },
+        { kind: 'fund_release', subcategoryId: 1, amountCents: -3_000 },
+      ]);
+    });
+
+    it('counts spending without a budget line as regular spending', () => {
+      const plan = planClose([], new Map([[7, 1_234]]), new Map(), new Set());
+      expect(plan.moves).toEqual([{ kind: 'spending', subcategoryId: 7, amountCents: -1_234 }]);
+    });
+  });
+
   describe('auto-copy', () => {
     it('uses default limits when no earlier month exists, for active expense subcategories only', async () => {
       await lifecycle.ensureMonth('2026-08');
@@ -80,8 +144,8 @@ describe('BudgetLifecycleService', () => {
       const byId = await lines('2026-08');
       expect([...byId.keys()].sort()).toEqual([groceries, dining, rent].sort());
       expect(byId.has(salary)).toBe(false);
-      expect(byId.get(groceries)).toMatchObject({ limitCents: 50_000, carryInCents: 0, rollover: true });
-      expect(byId.get(rent)).toMatchObject({ limitCents: 100_000, carryInCents: 0, rollover: false });
+      expect(byId.get(groceries)).toMatchObject({ limitCents: 50_000, carryInCents: 0, fund: true });
+      expect(byId.get(rent)).toMatchObject({ limitCents: 100_000, carryInCents: 0, fund: false });
     });
 
     it('is idempotent', async () => {
@@ -105,96 +169,121 @@ describe('BudgetLifecycleService', () => {
     it('skips archived subcategories and adds active ones missing from the source', async () => {
       await lifecycle.ensureMonth('2026-08');
       await prisma.subcategory.update({ where: { id: dining }, data: { archivedAt: new Date() } });
-      const fuel = await prisma.subcategory.create({ data: { categoryId: foodId, name: 'Snacks', defaultLimitCents: 3_000 } });
+      const snacks = await prisma.subcategory.create({ data: { categoryId: foodId, name: 'Snacks', defaultLimitCents: 3_000 } });
 
       await lifecycle.ensureMonth('2026-09');
       const byId = await lines('2026-09');
       expect(byId.has(dining)).toBe(false);
-      expect(byId.get(fuel.id)?.limitCents).toBe(3_000);
+      expect(byId.get(snacks.id)).toMatchObject({ limitCents: 3_000, fund: false });
     });
 
-    it('snapshots the category rollover flag at creation time', async () => {
-      await prisma.category.update({ where: { id: foodId }, data: { rollover: false } });
+    it('snapshots the subcategory fund flag at creation time', async () => {
+      await prisma.subcategory.update({ where: { id: groceries }, data: { fund: false } });
       await lifecycle.ensureMonth('2026-08');
-      expect((await lines('2026-08')).get(groceries)?.rollover).toBe(false);
+      expect((await lines('2026-08')).get(groceries)?.fund).toBe(false);
     });
   });
 
   describe('close', () => {
-    it('carries positive leftovers forward for rollover lines', async () => {
-      await spend('2026-08-03', groceries, 30_000);
-      const outcomes = await lifecycle.close('2026-08');
+    it('adds income to savings and takes regular spending out of it', async () => {
+      await earn('2026-08-01', 400_000);
+      await spend('2026-08-02', rent, 95_000);
+      await lifecycle.close('2026-08');
 
-      expect(outcomes.find((o) => o.subcategoryId === groceries)).toEqual({
-        subcategoryId: groceries,
-        leftoverCents: 20_000,
-        result: 'carried',
-      });
-      expect((await lines('2026-09')).get(groceries)?.carryInCents).toBe(20_000);
-      expect(await prisma.savingsEntry.count({ where: { subcategoryId: groceries } })).toBe(0);
-
+      expect(await entries('2026-08')).toEqual([
+        { kind: 'income', subcategoryId: salary, amountCents: 400_000 },
+        { kind: 'spending', subcategoryId: rent, amountCents: -95_000 },
+        { kind: 'fund_contribution', subcategoryId: groceries, amountCents: -50_000 },
+        { kind: 'fund_contribution', subcategoryId: dining, amountCents: -20_000 },
+      ]);
+      // 400_000 − 95_000 − 70_000 into funds
+      expect(await balance()).toBe(235_000);
       const closed = await prisma.budgetMonth.findUniqueOrThrow({ where: { month: '2026-08' } });
-      expect(closed.status).toBe('closed');
+      expect(closed).toMatchObject({ status: 'closed' });
       expect(closed.closedAt).toBeInstanceOf(Date);
     });
 
-    it('sweeps positive leftovers to savings for non-rollover lines', async () => {
-      await spend('2026-08-01', rent, 95_000);
-      await lifecycle.close('2026-08');
+    it('lets regular overspending reduce savings, and underspending leave more in it', async () => {
+      await earn('2026-08-01', 200_000);
+      await spend('2026-08-02', rent, 120_000); // 20_000 over its 100_000 target
+      const outcomes = await lifecycle.close('2026-08');
 
-      const entries = await prisma.savingsEntry.findMany({ where: { month: '2026-08' } });
-      expect(entries).toEqual([expect.objectContaining({ subcategoryId: rent, amountCents: 5_000 })]);
+      expect(outcomes.find((o) => o.subcategoryId === rent)).toEqual({ subcategoryId: rent, remainingCents: -20_000, result: 'regular' });
+      expect(await balance()).toBe(200_000 - 120_000 - 70_000);
       expect((await lines('2026-09')).get(rent)?.carryInCents).toBe(0);
     });
 
-    it('carries a deficit forward for rollover lines, even when negative', async () => {
-      await spend('2026-08-10', groceries, 50_000); // exactly spent
-      await spend('2026-08-11', dining, 25_000); // overspent by 5_000
-      const outcomes = await lifecycle.close('2026-08');
-
-      expect(outcomes.find((o) => o.subcategoryId === groceries)).toMatchObject({ leftoverCents: 0, result: 'none' });
-      expect(outcomes.find((o) => o.subcategoryId === dining)).toMatchObject({ leftoverCents: -5_000, result: 'carried' });
-      const next = await lines('2026-09');
-      expect(next.get(groceries)?.carryInCents).toBe(0);
-      expect(next.get(dining)?.carryInCents).toBe(-5_000);
-      expect(await prisma.savingsEntry.count({ where: { subcategoryId: { in: [groceries, dining] } } })).toBe(0);
+    it('lets savings go negative', async () => {
+      await spend('2026-08-02', rent, 10_000);
+      await lifecycle.close('2026-08');
+      expect(await balance()).toBe(-10_000 - 70_000);
     });
 
-    it('adds this month\'s limit to a negative carry-in, and keeps carrying the result', async () => {
-      await spend('2026-08-11', dining, 45_000); // 20_000 limit → -25_000
+    it('carries a fund balance forward, positive or negative', async () => {
+      await spend('2026-08-10', groceries, 30_000); // 50_000 → +20_000
+      await spend('2026-08-11', dining, 25_000); // 20_000 → -5_000
+      const outcomes = await lifecycle.close('2026-08');
+
+      expect(outcomes.find((o) => o.subcategoryId === groceries)).toMatchObject({ remainingCents: 20_000, result: 'carried' });
+      expect(outcomes.find((o) => o.subcategoryId === dining)).toMatchObject({ remainingCents: -5_000, result: 'carried' });
+      const next = await lines('2026-09');
+      expect(next.get(groceries)?.carryInCents).toBe(20_000);
+      expect(next.get(dining)?.carryInCents).toBe(-5_000);
+      // Fund spending never touches savings directly; only the contributions do.
+      expect((await entries('2026-08')).filter((e) => e.kind === 'spending')).toEqual([]);
+    });
+
+    it("adds each month's contribution to the fund balance", async () => {
+      await spend('2026-08-11', dining, 45_000); // 20_000 → -25_000
       await lifecycle.close('2026-08');
-      // September budget: 20_000 + (-25_000) = -5_000; spend 1_000 more → -6_000
-      await spend('2026-09-02', dining, 1_000);
+      await spend('2026-09-02', dining, 1_000); // 20_000 − 25_000 − 1_000 → -6_000
       const outcomes = await lifecycle.close('2026-09');
-      expect(outcomes.find((o) => o.subcategoryId === dining)?.leftoverCents).toBe(-6_000);
-      // October budget: 20_000 - 6_000 = 14_000 with nothing spent → +14_000 carries to November
-      await lifecycle.close('2026-10');
+      expect(outcomes.find((o) => o.subcategoryId === dining)?.remainingCents).toBe(-6_000);
+      await lifecycle.close('2026-10'); // 20_000 − 6_000 → 14_000
       expect((await lines('2026-11')).get(dining)?.carryInCents).toBe(14_000);
     });
 
-    it('resets overspending for non-rollover lines', async () => {
-      await spend('2026-08-12', rent, 120_000);
-      const outcomes = await lifecycle.close('2026-08');
-      expect(outcomes.find((o) => o.subcategoryId === rent)).toMatchObject({ leftoverCents: -20_000, result: 'none' });
-      expect((await lines('2026-09')).get(rent)?.carryInCents).toBe(0);
-      expect(await prisma.savingsEntry.count({ where: { subcategoryId: rent } })).toBe(0);
-    });
-
-    it('drops a deficit when the next month has no matching line', async () => {
+    it('releases a fund balance to savings when the next month has no fund line for it', async () => {
       await lifecycle.ensureMonth('2026-08');
-      await spend('2026-08-11', dining, 30_000);
+      await spend('2026-08-11', dining, 30_000); // -10_000
       await prisma.subcategory.update({ where: { id: dining }, data: { archivedAt: new Date() } });
       const outcomes = await lifecycle.close('2026-08');
-      expect(outcomes.find((o) => o.subcategoryId === dining)).toMatchObject({ leftoverCents: -10_000, result: 'none' });
-      expect(await prisma.savingsEntry.count({ where: { subcategoryId: dining } })).toBe(0);
+
+      expect((await lines('2026-09')).has(dining)).toBe(false);
+      expect(outcomes.find((o) => o.subcategoryId === dining)).toMatchObject({ remainingCents: -10_000, result: 'released' });
+      expect((await entries('2026-08')).filter((e) => e.subcategoryId === dining)).toEqual([
+        { kind: 'fund_contribution', subcategoryId: dining, amountCents: -20_000 },
+        { kind: 'fund_release', subcategoryId: dining, amountCents: -10_000 },
+      ]);
     });
 
-    it('includes carry-in when computing the leftover', async () => {
+    it('releases a fund balance when the subcategory becomes regular', async () => {
       await lifecycle.close('2026-08'); // groceries carries 50_000 into September
-      await spend('2026-09-05', groceries, 70_000);
+      await prisma.$transaction((tx) => lifecycle.applyFundToOpenMonths(tx, groceries, false));
+      await spend('2026-09-03', groceries, 10_000);
       await lifecycle.close('2026-09');
-      // 50_000 limit + 50_000 carry-in - 70_000 spent
-      expect((await lines('2026-10')).get(groceries)?.carryInCents).toBe(30_000);
+
+      expect((await entries('2026-09')).filter((e) => e.subcategoryId === groceries)).toEqual([
+        { kind: 'spending', subcategoryId: groceries, amountCents: -10_000 },
+        { kind: 'fund_release', subcategoryId: groceries, amountCents: 50_000 },
+      ]);
+      expect((await lines('2026-10')).get(groceries)?.carryInCents).toBe(0);
+    });
+
+    it('keeps savings + fund balances equal to total income − total spending', async () => {
+      await earn('2026-08-01', 300_000);
+      await spend('2026-08-02', rent, 100_000);
+      await spend('2026-08-03', groceries, 65_000);
+      await spend('2026-08-04', dining, 5_000);
+      await lifecycle.close('2026-08');
+      expect(await totalHeld('2026-09')).toBe(300_000 - 170_000);
+
+      await earn('2026-09-01', 310_000);
+      await spend('2026-09-02', rent, 100_000);
+      await spend('2026-09-03', dining, 60_000);
+      await lifecycle.payDeficit('2026-09', (await lines('2026-09')).get(dining)!.id);
+      await lifecycle.close('2026-09');
+      expect(await totalHeld('2026-10')).toBe(300_000 - 170_000 + 310_000 - 160_000);
     });
 
     it('auto-creates the next month so carry-ins have a line to land on', async () => {
@@ -203,22 +292,13 @@ describe('BudgetLifecycleService', () => {
       expect(await prisma.budgetMonth.findUnique({ where: { month: '2026-09' } })).not.toBeNull();
     });
 
-    it('sends a rollover leftover to savings when the next month has no matching line', async () => {
-      await lifecycle.ensureMonth('2026-08');
-      await prisma.subcategory.update({ where: { id: dining }, data: { archivedAt: new Date() } });
-      await lifecycle.close('2026-08');
-
-      expect((await lines('2026-09')).has(dining)).toBe(false);
-      const entries = await prisma.savingsEntry.findMany({ where: { subcategoryId: dining } });
-      expect(entries.map((e) => e.amountCents)).toEqual([20_000]);
-    });
-
-    it('ignores income and other months when computing spending', async () => {
-      await prisma.transaction.create({ data: { date: '2026-08-15', type: 'income', subcategoryId: salary, amountCents: 999_999 } });
+    it('only counts transactions dated in the month', async () => {
+      await earn('2026-07-31', 999_999);
       await spend('2026-07-31', groceries, 10_000);
       await spend('2026-09-01', groceries, 10_000);
       const outcomes = await lifecycle.close('2026-08');
-      expect(outcomes.find((o) => o.subcategoryId === groceries)?.leftoverCents).toBe(50_000);
+      expect(outcomes.find((o) => o.subcategoryId === groceries)?.remainingCents).toBe(50_000);
+      expect((await entries('2026-08')).some((e) => e.kind === 'income')).toBe(false);
     });
 
     it('refuses to close an already closed month', async () => {
@@ -244,7 +324,8 @@ describe('BudgetLifecycleService', () => {
   });
 
   describe('reopen', () => {
-    it('deletes the month savings entries, resets next month carry-ins, and reopens', async () => {
+    it("deletes the month's close entries, resets next month's carry-ins, and reopens", async () => {
+      await earn('2026-08-01', 100_000);
       await spend('2026-08-01', rent, 90_000);
       await lifecycle.close('2026-08');
       expect(await prisma.savingsEntry.count()).toBeGreaterThan(0);
@@ -257,6 +338,15 @@ describe('BudgetLifecycleService', () => {
       expect([...next.values()].every((line) => line.carryInCents === 0)).toBe(true);
       const august = await prisma.budgetMonth.findUniqueOrThrow({ where: { month: '2026-08' } });
       expect(august).toMatchObject({ status: 'open', closedAt: null });
+    });
+
+    it('is allowed even when savings would go negative', async () => {
+      await earn('2026-08-01', 100_000);
+      await lifecycle.close('2026-08');
+      await spend('2026-09-02', dining, 100_000);
+      await lifecycle.payDeficit('2026-09', (await lines('2026-09')).get(dining)!.id); // uses all 30_000
+      await expect(lifecycle.reopen('2026-08')).resolves.toBeUndefined();
+      expect(await balance()).toBe(-30_000);
     });
 
     it('recomputes correctly when closed again after corrections', async () => {
@@ -295,19 +385,18 @@ describe('BudgetLifecycleService', () => {
 
   describe('deficit payments', () => {
     const lineFor = async (month: string, subcategoryId: number) => (await lines(month)).get(subcategoryId)!;
-    const balance = () => lifecycle.savingsBalance(prisma);
 
-    /** August: rent under by 30_000 → swept to savings. Dining over by 10_000 → carries -10_000. */
+    /** August: savings 30_000; dining over by 10_000 → carries -10_000. September dining: 10_000 − 16_000 = -6_000. */
     async function withSavingsAndDeficit() {
-      await spend('2026-08-01', rent, 70_000);
+      await earn('2026-08-01', 200_000);
+      await spend('2026-08-01', rent, 100_000);
       await spend('2026-08-02', dining, 30_000);
       await spend('2026-08-03', groceries, 50_000);
-      await lifecycle.close('2026-08');
-      // Personal-free fixture: savings = 30_000 (rent). September dining: 20_000 - 10_000 = 10_000 available.
-      await spend('2026-09-04', dining, 16_000); // remaining -6_000
+      await lifecycle.close('2026-08'); // 200_000 − 100_000 − 70_000
+      await spend('2026-09-04', dining, 16_000);
     }
 
-    it('zeros a rollover line\'s current deficit from savings and records it on the line', async () => {
+    it("zeros a fund's current deficit from savings and records it on the line", async () => {
       await withSavingsAndDeficit();
       expect(await balance()).toBe(30_000);
       const line = await lineFor('2026-09', dining);
@@ -339,12 +428,12 @@ describe('BudgetLifecycleService', () => {
       expect((await lineFor('2026-10', dining)).carryInCents).toBe(-16_000);
     });
 
-    it('rejects lines without a deficit, non-rollover lines, and closed months', async () => {
+    it('rejects lines without a deficit, regular lines, and closed months', async () => {
       await withSavingsAndDeficit();
       await expect(lifecycle.payDeficit('2026-09', (await lineFor('2026-09', groceries)).id)).rejects.toThrow(/no deficit/);
 
       await spend('2026-09-07', rent, 200_000);
-      await expect(lifecycle.payDeficit('2026-09', (await lineFor('2026-09', rent)).id)).rejects.toThrow(/doesn't roll over/);
+      await expect(lifecycle.payDeficit('2026-09', (await lineFor('2026-09', rent)).id)).rejects.toThrow(/isn't a fund/);
 
       await lifecycle.close('2026-09');
       await expect(lifecycle.payDeficit('2026-09', (await lineFor('2026-09', dining)).id)).rejects.toMatchObject({
@@ -376,36 +465,28 @@ describe('BudgetLifecycleService', () => {
       expect(await prisma.savingsEntry.count({ where: { month: '2026-09', kind: 'deficit_payment' } })).toBe(1);
       expect((await lineFor('2026-09', dining)).deficitPaidCents).toBe(6_000);
     });
-
-    it('blocks reopening a month whose sweeps were already spent on deficits', async () => {
-      await withSavingsAndDeficit();
-      await spend('2026-09-06', dining, 40_000);
-      await lifecycle.payDeficit('2026-09', (await lineFor('2026-09', dining)).id); // uses all 30_000 of August's sweep
-
-      await expect(lifecycle.reopen('2026-08')).rejects.toThrow(/Undo those deficit payments first/);
-      expect((await prisma.budgetMonth.findUniqueOrThrow({ where: { month: '2026-08' } })).status).toBe('closed');
-      expect(await balance()).toBe(0);
-    });
   });
 
   describe('other rules', () => {
-    it('applies a rollover change to open months only', async () => {
+    it('applies a fund change to open months only', async () => {
       await lifecycle.close('2026-08');
-      await prisma.$transaction((tx) => lifecycle.applyRolloverToOpenMonths(tx, foodId, false));
+      await prisma.$transaction((tx) => lifecycle.applyFundToOpenMonths(tx, groceries, false));
 
-      expect((await lines('2026-08')).get(groceries)?.rollover).toBe(true);
-      expect((await lines('2026-09')).get(groceries)?.rollover).toBe(false);
+      expect((await lines('2026-08')).get(groceries)?.fund).toBe(true);
+      expect((await lines('2026-09')).get(groceries)?.fund).toBe(false);
     });
 
     it('adds a line for a new subcategory to every open month', async () => {
       await lifecycle.close('2026-08');
       await lifecycle.ensureMonth('2026-10');
-      const snacks = await prisma.subcategory.create({ data: { categoryId: foodId, name: 'Snacks', defaultLimitCents: 2_500 } });
+      const snacks = await prisma.subcategory.create({
+        data: { categoryId: foodId, name: 'Snacks', defaultLimitCents: 2_500, fund: true },
+      });
       await prisma.$transaction((tx) => lifecycle.addLineToOpenMonths(tx, snacks.id));
 
       expect((await lines('2026-08')).has(snacks.id)).toBe(false);
       expect((await lines('2026-09')).get(snacks.id)?.limitCents).toBe(2_500);
-      expect((await lines('2026-10')).get(snacks.id)?.rollover).toBe(true);
+      expect((await lines('2026-10')).get(snacks.id)?.fund).toBe(true);
     });
 
     it('assertOpen rejects closed months with MONTH_CLOSED', async () => {
