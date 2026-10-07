@@ -6,8 +6,5 @@
 .stat-label { font-size: 0.85rem; font-weight: 600; color: var(--st-ink-muted); }
 .stat-value { font-size: 1.75rem; font-weight: 650; letter-spacing: -0.01em; }
 .stat-sub { display: flex; align-items: center; gap: 4px; font-size: 0.85rem; }
-.income { color: var(--st-green); }
-.negative { color: var(--st-orange); }
-.between { justify-content: space-between; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 .grid .empty { grid-column: 1 / -1; }

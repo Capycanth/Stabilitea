@@ -34,7 +34,7 @@
             "styles": [
               "@fontsource-variable/inter/index.css",
               "@fontsource-variable/fraunces/full.css",
-              "src/styles.css"
+              "src/styles.scss"
             ],
             "outputPath": "dist/web"
           },

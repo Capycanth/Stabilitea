@@ -9,9 +9,7 @@ tfoot th, tfoot td { font-weight: 650; border-bottom: 0; }
 .empty-cell { text-align: center; color: var(--st-ink-muted); padding: 24px; }
 .savings-note { display: flex; gap: 10px; align-items: center; font-size: 0.9rem; color: var(--st-ink-muted); }
 .savings-note strong { color: var(--st-ink); }
-.between { justify-content: space-between; }
 .total-paid { font-weight: 650; }
-.payments { list-style: none; margin: 0; padding: 0; }
 .payments li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--st-line); }
 .group-row .chip { font-family: var(--st-font-body); font-variation-settings: normal; }
 @media (max-width: 640px) {
@@ -21,5 +19,4 @@ tfoot th, tfoot td { font-weight: 650; border-bottom: 0; }
   .budget-table tfoot tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 12px; padding: 12px 4px; }
   .budget-table tfoot th, .budget-table tfoot td { display: block; padding: 0; text-align: left; }
   .budget-table tfoot th { grid-column: 1 / -1; }
-  .budget-table tfoot td::before { content: attr(data-label); display: block; font-size: 0.72rem; font-weight: 600; color: var(--st-ink-muted); text-transform: uppercase; }
 }

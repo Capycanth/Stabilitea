@@ -5,7 +5,7 @@
 .sidebar { position: sticky; top: 0; height: 100dvh; display: flex; flex-direction: column; gap: 24px; padding: 20px 14px; background: var(--st-ivory-deep); border-right: 1px solid var(--st-line); }
 .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px; color: var(--st-ink); text-decoration: none; }
 .wordmark { font-family: var(--st-font-heading); font-variation-settings: 'SOFT' 100; font-size: 1.4rem; font-weight: 600; }
-nav ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+nav ul { display: grid; gap: 2px; }
 nav a { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; color: var(--st-ink); text-decoration: none; font-weight: 500; }
 nav a:hover { background: var(--st-line); }
 nav a.active { background: var(--st-surface); color: var(--st-green); font-weight: 650; box-shadow: inset 3px 0 0 var(--st-green); }

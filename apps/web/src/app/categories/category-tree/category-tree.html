@@ -22,7 +22,7 @@
         <p id="tree-label" class="label">Categories and subcategories</p>
         <p class="hint">Use arrow keys to move, Right/Left to expand or collapse, and select an item to edit it.</p>
         @if (visible().length) {
-          <ul ngTree #tree="ngTree" class="tree" aria-labelledby="tree-label" selectionMode="follow" [(value)]="selection">
+          <ul ngTree #tree="ngTree" class="tree list-reset" aria-labelledby="tree-label" selectionMode="follow" [(value)]="selection">
             @for (category of visible(); track category.id) {
               <li
                 ngTreeItem
@@ -43,7 +43,7 @@
                   }
                 </span>
                 @if (category.subcategories.length) {
-                  <ul role="group" class="group">
+                  <ul role="group" class="group list-reset">
                     <ng-template ngTreeItemGroup [ownedBy]="categoryItem" #group="ngTreeItemGroup">
                       @for (sub of category.subcategories; track sub.id) {
                         <li ngTreeItem [parent]="group" [value]="'s-' + sub.id" [label]="sub.name" class="node leaf">

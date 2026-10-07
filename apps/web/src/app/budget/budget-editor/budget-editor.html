@@ -84,7 +84,7 @@
     </p>
 
     <div class="table-wrap card">
-      <table class="table budget-table">
+      <table class="table table-stacked budget-table">
         <caption class="visually-hidden">Budget lines for {{ label() }}</caption>
         <thead>
           <tr>
@@ -140,7 +140,7 @@
           <h2 id="deficit-payments-title" class="small-title">Deficits paid from savings</h2>
           <p class="money total-paid">{{ budgetValue.deficitPaidCents | money }}</p>
         </div>
-        <ul class="payments">
+        <ul class="payments list-reset">
           @for (payment of budgetValue.deficitPayments; track payment.id) {
             <li>
               <span>

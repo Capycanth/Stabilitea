@@ -12,5 +12,4 @@
   .name, .limit { grid-column: 1 / -1; width: auto; }
   .remaining .over-label { justify-content: flex-start; }
   .pay { margin-left: 0; }
-  td.end[data-label]::before { content: attr(data-label); display: block; font-size: 0.72rem; font-weight: 600; color: var(--st-ink-muted); text-transform: uppercase; letter-spacing: 0.03em; }
 }

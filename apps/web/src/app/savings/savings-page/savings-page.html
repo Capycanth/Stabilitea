@@ -30,7 +30,7 @@
           <h2 id="funds-title">Funds</h2>
           <p class="hint">Each fund keeps its own balance. Shown as of the latest closed month, including deficits paid since.</p>
         </div>
-        <ul class="funds">
+        <ul class="funds list-reset">
           @for (fund of s.funds; track fund.subcategoryId) {
             <li class="card-deep fund">
               <span class="fund-name">{{ fund.subcategoryName }}</span>

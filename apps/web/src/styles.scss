@@ -100,6 +100,28 @@ a {
   color: var(--st-ink-muted);
 }
 
+.small {
+  font-size: 0.82rem;
+}
+
+.income {
+  color: var(--st-green);
+}
+
+.negative {
+  color: var(--st-orange);
+}
+
+.between {
+  justify-content: space-between;
+}
+
+.list-reset {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
 .visually-hidden {
   position: absolute !important;
   width: 1px;
@@ -410,6 +432,19 @@ textarea.input {
 
 .table .end {
   text-align: right;
+}
+
+/* Cells of a .table-stacked table show their data-label above the value once rows collapse. */
+@media (max-width: 640px) {
+  .table-stacked td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--st-ink-muted);
+  }
 }
 
 /* ---------- Dialog ---------- */

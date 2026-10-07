@@ -4,7 +4,7 @@
     <span class="chip chip-green fund"><app-icon name="rollover" [size]="12" />Fund</span>
   }
 </th>
-<td class="limit" data-label="Limit">
+<td class="limit">
   @if (readonly()) {
     <span class="money">{{ line().limitCents | money }}</span>
   } @else {

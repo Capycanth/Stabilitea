@@ -41,7 +41,7 @@
       @for (group of groups(); track group.date) {
         <section class="group" [attr.aria-labelledby]="'day-' + group.date">
           <h2 class="day" [id]="'day-' + group.date">{{ group.label }}</h2>
-          <ul class="items">
+          <ul class="items list-reset">
             @for (tx of group.items; track tx.id) {
               <li class="item">
                 <div class="who">

@@ -24,7 +24,7 @@ Angular best-practices file; follow it for everything under `apps/web`).
   (`budget/budget-editor/budget-editor.ts`); move a template over 30 lines to `<name>.html` and styles over
   10 lines to `<name>.scss`, otherwise keep them inline. Components never call `HttpClient`;
   each `*-api.ts` `@Service()` exposes resource factories (reads) and promise methods (writes).
-- Colors only through the `--st-*` tokens in `apps/web/src/styles.css`. `--st-green` text on
+- Colors only through the `--st-*` tokens in `apps/web/src/styles.scss`. `--st-green` text on
   `--st-ivory-deep` is 4.27:1, so use green text there only at large sizes.
 - Don't write `standalone: true`, `changeDetection: OnPush`, `@Input()`, `ngClass`, or constructor injection.
 

@@ -21,7 +21,7 @@ import { MoneyPipe } from '../../shared/money-pipe';
       <p class="paid"><app-icon name="piggy-out" [size]="14" />{{ category().deficitPaidCents | money }} paid from savings</p>
     }
 
-    <ul class="subs" [attr.aria-labelledby]="headingId()">
+    <ul class="subs list-reset" [attr.aria-labelledby]="headingId()">
       @for (sub of category().subcategories; track sub.id) {
         <li>
           <div class="sub-head">
@@ -44,7 +44,7 @@ import { MoneyPipe } from '../../shared/money-pipe';
     .totals { font-size: 0.9rem; }
     .paid { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; color: var(--st-ink-muted); }
     .spent { font-size: 1.35rem; font-weight: 650; }
-    .subs { list-style: none; margin: 4px 0 0; padding: 12px 0 0; border-top: 1px solid var(--st-line); display: grid; gap: 12px; }
+    .subs { margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--st-line); display: grid; gap: 12px; }
     .sub-head { display: flex; justify-content: space-between; gap: 8px; font-size: 0.9rem; font-weight: 500; }
     .sub-name { display: inline-flex; align-items: center; gap: 6px; }
     .fund { font-size: 0.72rem; padding-block: 1px; }
