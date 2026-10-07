@@ -38,6 +38,11 @@ export interface CategoryDto {
   archivedAt: string | null;
   /** Number of transactions recorded against this category (all months). */
   transactionCount: number;
+  /**
+   * True when the category can be permanently deleted: it (or its group) is archived and it was never used — no
+   * transactions, no savings entries and no lines in closed months.
+   */
+  deletable: boolean;
 }
 
 export interface GroupDto {
@@ -47,6 +52,8 @@ export interface GroupDto {
   sortOrder: number;
   archivedAt: string | null;
   categories: CategoryDto[];
+  /** True when the group is archived and every category in it was never used, so it can be permanently deleted. */
+  deletable: boolean;
 }
 
 export interface CreateGroupRequest {
@@ -163,6 +170,11 @@ export interface BudgetLineDto {
    * the leftover (positive) or shortfall (negative) that settles with savings at close.
    */
   remainingCents: number;
+  /**
+   * The category or its group is archived. Open months drop archived lines unless they still hold money or
+   * spending, which has to settle at close; those stay and are flagged.
+   */
+  archived: boolean;
 }
 
 export interface DeficitPaymentDto {

@@ -4,7 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import type { GroupDto } from '@stabilitea/shared';
 import { GroupEditor } from './group-editor';
 
-const housing: GroupDto = { id: 2, name: 'Housing', kind: 'expense', sortOrder: 1, archivedAt: null, categories: [] };
+const housing: GroupDto = { id: 2, name: 'Housing', kind: 'expense', sortOrder: 1, archivedAt: null, categories: [], deletable: false };
 
 describe('GroupEditor add-category form', () => {
   let http: HttpTestingController;
@@ -80,5 +80,55 @@ describe('GroupEditor add-category form', () => {
   it('has no type choice for income groups', async () => {
     const { type } = await render({ ...housing, kind: 'income', name: 'Income' });
     expect(type()).toBeNull();
+  });
+});
+
+describe('GroupEditor permanent delete', () => {
+  let http: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    http = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => http.verify());
+
+  async function render(group: GroupDto) {
+    const fixture = TestBed.createComponent(GroupEditor);
+    fixture.componentRef.setInput('group', group);
+    fixture.componentRef.setInput('index', 0);
+    fixture.componentRef.setInput('count', 1);
+    await fixture.whenStable();
+    const el = fixture.nativeElement as HTMLElement;
+    const deleteButton = () =>
+      [...el.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes('Delete permanently'));
+    return { fixture, el, deleteButton };
+  }
+
+  it('offers delete only once the group is archived', async () => {
+    const { el, deleteButton } = await render(housing);
+    expect(deleteButton()).toBeUndefined();
+    expect(el.textContent).toContain('Once archived');
+  });
+
+  it('disables delete when a category has history', async () => {
+    const { el, deleteButton } = await render({ ...housing, archivedAt: '2026-10-01T00:00:00.000Z' });
+    expect(deleteButton()?.disabled).toBe(true);
+    expect(el.textContent).toContain('stays archived');
+  });
+
+  it('confirms, then deletes an unused archived group', async () => {
+    const { fixture, el, deleteButton } = await render({ ...housing, archivedAt: '2026-10-01T00:00:00.000Z', deletable: true });
+    let changed = 0;
+    fixture.componentInstance.changed.subscribe(() => changed++);
+    deleteButton()!.click();
+    await fixture.whenStable();
+    expect(el.querySelector('#confirm-title')?.textContent).toContain('Delete Housing?');
+    [...el.querySelectorAll<HTMLButtonElement>('dialog button')].find((b) => b.textContent?.includes('Delete permanently'))!.click();
+    await fixture.whenStable();
+    const req = http.expectOne((r) => r.method === 'DELETE' && r.url === '/api/groups/2');
+    req.flush(null, { status: 204, statusText: 'No Content' });
+    await fixture.whenStable();
+    expect(changed).toBe(1);
   });
 });

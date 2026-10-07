@@ -58,6 +58,7 @@ export class BudgetsService {
           recurring: recurringInfo(line, spentCents),
           spentCents,
           remainingCents: availableCents - spentCents,
+          archived: line.category.archivedAt !== null || group.archivedAt !== null,
         });
       }
 

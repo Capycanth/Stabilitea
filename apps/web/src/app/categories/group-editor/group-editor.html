@@ -33,10 +33,28 @@
   <button type="button" class="btn btn-sm" [disabled]="busy()" (click)="toggleArchived()">
     <app-icon name="archive" [size]="16" />{{ group().archivedAt ? 'Unarchive' : 'Archive' }}
   </button>
+  @if (group().archivedAt) {
+    <button
+      type="button"
+      class="btn btn-sm btn-danger"
+      [disabled]="busy() || !group().deletable"
+      aria-describedby="group-delete-hint"
+      (click)="deleteGroup()"
+    >
+      <app-icon name="trash" [size]="16" />Delete permanently
+    </button>
+  }
 </div>
-@if (!group().archivedAt) {
-  <p class="hint">Archived groups are hidden from new budgets; their history stays intact.</p>
-}
+<p class="hint" id="group-delete-hint">
+  @if (!group().archivedAt) {
+    Archived groups are hidden from budgets; their history stays intact. Once archived, a group whose categories were
+    never used can be deleted.
+  } @else if (group().deletable) {
+    None of this group's categories were used, so the group can be permanently deleted.
+  } @else {
+    Some of this group's categories have history (transactions or closed months), so it stays archived.
+  }
+</p>
 
 <form class="stack category-form" novalidate [formRoot]="categoryForm" aria-labelledby="add-category-title">
   <h3 id="add-category-title">Add category</h3>
@@ -69,3 +87,5 @@
     }
   </div>
 </form>
+
+<app-confirm-dialog />

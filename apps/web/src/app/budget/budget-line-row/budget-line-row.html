@@ -1,6 +1,10 @@
 <th scope="row" class="name">
   {{ line().categoryName }}
   <app-type-chip [type]="line().type" />
+  @if (line().archived) {
+    <span class="chip"><app-icon name="archive" [size]="13" />Archived</span>
+    <span class="bill-info">Settles at close, then leaves the budget</span>
+  }
   @if (line().recurring; as bill) {
     <span class="bill-info">{{ billText(bill.billCents, bill.billMonths) }} · {{ statusText() }}</span>
   }

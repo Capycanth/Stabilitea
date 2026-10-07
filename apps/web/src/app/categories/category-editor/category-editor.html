@@ -54,12 +54,30 @@
   <button type="button" class="btn btn-sm" [disabled]="busy()" (click)="toggleArchived()">
     <app-icon name="archive" [size]="16" />{{ category().archivedAt ? 'Unarchive' : 'Archive' }}
   </button>
+  @if (archived()) {
+    <button
+      type="button"
+      class="btn btn-sm btn-danger"
+      [disabled]="busy() || !category().deletable"
+      aria-describedby="category-delete-hint"
+      (click)="deleteCategory()"
+    >
+      <app-icon name="trash" [size]="16" />Delete permanently
+    </button>
+  }
 </div>
-<p class="hint">
-  @if (category().transactionCount > 0) {
-    {{ category().transactionCount }} transaction{{ category().transactionCount === 1 ? '' : 's' }} recorded.
-    Categories with transactions can be archived but not deleted.
+<p class="hint" id="category-delete-hint">
+  @if (!archived()) {
+    Archived categories are hidden from budgets and the transaction form. Once archived, a category that was never
+    used can be deleted.
+  } @else if (category().deletable) {
+    This category was never used, so it can be permanently deleted.
   } @else {
-    Archived categories are hidden from new budgets and the transaction form.
+    @if (category().transactionCount > 0) {
+      {{ category().transactionCount }} transaction{{ category().transactionCount === 1 ? '' : 's' }} recorded.
+    }
+    Categories with history (transactions or closed months) stay archived and can't be deleted.
   }
 </p>
+
+<app-confirm-dialog />

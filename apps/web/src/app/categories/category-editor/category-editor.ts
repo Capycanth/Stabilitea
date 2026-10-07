@@ -1,7 +1,8 @@
-import { Component, computed, inject, input, linkedSignal, output, signal } from '@angular/core';
+import { Component, computed, inject, input, linkedSignal, output, signal, viewChild } from '@angular/core';
 import { apply, form, FormField, FormRoot, maxLength, min, required, type TreeValidationResult } from '@angular/forms/signals';
 import type { GroupDto, CategoryDto, UpdateCategoryRequest } from '@stabilitea/shared';
 import { errorMessage, toApiError } from '../../shared/api-error';
+import { ConfirmDialog } from '../../shared/confirm-dialog/confirm-dialog';
 import { Icon } from '../../shared/icon/icon';
 import { MoneyInput } from '../../shared/money-input/money-input';
 import { Notifier } from '../../shared/notifier';
@@ -34,7 +35,7 @@ const TYPE_LABEL = { standard: 'a standard category', fund: 'a fund', recurring:
 /** Detail panel for a selected category. */
 @Component({
   selector: 'app-category-editor',
-  imports: [CategoryTypeFields, FormField, FormRoot, Icon, MoneyInput],
+  imports: [CategoryTypeFields, ConfirmDialog, FormField, FormRoot, Icon, MoneyInput],
   templateUrl: './category-editor.html',
   styles: `
     :host { display: grid; gap: 18px; }
@@ -54,7 +55,10 @@ export class CategoryEditor {
   readonly count = input.required<number>();
   readonly changed = output<void>();
 
+  private readonly confirm = viewChild.required(ConfirmDialog);
   protected readonly busy = signal(false);
+  /** Archived itself or through its group; only then can it be deleted. */
+  protected readonly archived = computed(() => !!this.category().archivedAt || !!this.parent().archivedAt);
 
   protected readonly moveTargets = computed(() =>
     this.groups().filter((c) => c.kind === this.parent().kind && (!c.archivedAt || c.id === this.parent().id)),
@@ -109,6 +113,27 @@ export class CategoryEditor {
   protected toggleArchived(): void {
     const archived = !this.category().archivedAt;
     void this.update({ archived }, `${this.category().name} ${archived ? 'archived' : 'restored'}.`);
+  }
+
+  protected async deleteCategory(): Promise<void> {
+    const name = this.category().name;
+    const ok = await this.confirm().ask({
+      title: `Delete ${name}?`,
+      message: `${name} will be permanently removed. This can't be undone.`,
+      confirmLabel: 'Delete permanently',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    this.busy.set(true);
+    try {
+      await this.api.deleteCategory(this.category().id);
+      this.notifier.success(`${name} deleted.`);
+      this.changed.emit();
+    } catch (error) {
+      this.notifier.error(errorMessage(error));
+    } finally {
+      this.busy.set(false);
+    }
   }
 
   private async update(body: UpdateCategoryRequest, success: string): Promise<void> {

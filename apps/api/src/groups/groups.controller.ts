@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseBoolPipe, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseBoolPipe, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import type { GroupDto, CategoryDto } from '@stabilitea/shared';
 import { CreateGroupDto, CreateCategoryDto, UpdateGroupDto, UpdateCategoryDto } from './groups.dto.js';
 import { GroupsService } from './groups.service.js';
@@ -22,6 +22,13 @@ export class GroupsController {
     return this.groups.update(id, body);
   }
 
+  /** Permanently delete an archived group whose categories were never used. */
+  @Delete('groups/:id')
+  @HttpCode(204)
+  delete(@Param('id', ParseIntPipe) id: number): Promise<void> {
+    return this.groups.delete(id);
+  }
+
   @Post('groups/:id/categories')
   createCategory(@Param('id', ParseIntPipe) id: number, @Body() body: CreateCategoryDto): Promise<CategoryDto> {
     return this.groups.createCategory(id, body);
@@ -30,5 +37,12 @@ export class GroupsController {
   @Patch('categories/:id')
   updateCategory(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateCategoryDto): Promise<CategoryDto> {
     return this.groups.updateCategory(id, body);
+  }
+
+  /** Permanently delete an archived category that was never used. */
+  @Delete('categories/:id')
+  @HttpCode(204)
+  deleteCategory(@Param('id', ParseIntPipe) id: number): Promise<void> {
+    return this.groups.deleteCategory(id);
   }
 }
