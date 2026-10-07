@@ -19,8 +19,9 @@
         <p class="balance-value money" [class.negative]="s.balanceCents < 0">{{ s.balanceCents | money }}</p>
       </div>
       <p class="balance-note">
-        Closing a month adds its income and takes out regular spending and the money moved into funds. Paying a fund's
-        deficit from the Budget page also comes out of savings.
+        Closing a month adds its income and takes out standard spending, the money moved into funds and each recurring
+        bill's monthly share. When a bill is paid, whatever is left of its stored money comes back (or a shortfall comes
+        out). Paying a fund's deficit from the Budget page also comes out of savings.
       </p>
     </section>
 
@@ -31,15 +32,36 @@
           <p class="hint">Each fund keeps its own balance. Shown as of the latest closed month, including deficits paid since.</p>
         </div>
         <ul class="funds list-reset">
-          @for (fund of s.funds; track fund.subcategoryId) {
+          @for (fund of s.funds; track fund.categoryId) {
             <li class="card-deep fund">
-              <span class="fund-name">{{ fund.subcategoryName }}</span>
-              <span class="muted small">{{ fund.categoryName }}</span>
+              <span class="fund-name">{{ fund.categoryName }}</span>
+              <span class="muted small">{{ fund.groupName }}</span>
               <span class="money fund-balance" [class.negative]="fund.balanceCents < 0">
                 @if (fund.balanceCents < 0) {
                   <app-icon name="warning" [size]="14" /><span class="visually-hidden">Deficit</span>
                 }
                 {{ fund.balanceCents | money }}
+              </span>
+            </li>
+          }
+        </ul>
+      </section>
+    }
+
+    @if (s.recurring.length) {
+      <section class="stack" aria-labelledby="recurring-title">
+        <div>
+          <h2 id="recurring-title">Recurring bills</h2>
+          <p class="hint">Money stored for each bill, as of the latest closed month.</p>
+        </div>
+        <ul class="funds list-reset">
+          @for (bill of s.recurring; track bill.categoryId) {
+            <li class="card-deep fund">
+              <span class="fund-name">{{ bill.categoryName }}</span>
+              <span class="muted small">{{ bill.groupName }} · {{ billText(bill.billCents, bill.billMonths) }}</span>
+              <span class="money fund-balance">{{ bill.storedCents | money }}</span>
+              <span class="muted small">
+                of <span class="money">{{ bill.billCents | money }}</span> stored · due {{ monthLabel(bill.dueMonth) }}
               </span>
             </li>
           }
@@ -58,10 +80,16 @@
           </div>
           <dl class="flows">
             <div><dt>Income</dt><dd class="money">{{ m.incomeCents | money }}</dd></div>
-            <div><dt>Regular spending</dt><dd class="money">{{ m.spendingCents | money }}</dd></div>
+            <div><dt>Standard spending</dt><dd class="money">{{ m.spendingCents | money }}</dd></div>
             <div><dt>Into funds</dt><dd class="money">{{ m.fundContributionCents | money }}</dd></div>
             @if (m.fundReleaseCents !== 0) {
               <div><dt>Released from funds</dt><dd class="money">{{ m.fundReleaseCents | money }}</dd></div>
+            }
+            @if (m.recurringStoredCents !== 0) {
+              <div><dt>Stored for bills</dt><dd class="money">{{ m.recurringStoredCents | money }}</dd></div>
+            }
+            @if (m.recurringReleaseCents !== 0) {
+              <div><dt>Bills settled</dt><dd class="money">{{ m.recurringReleaseCents | money }}</dd></div>
             }
             @if (m.deficitPaidCents > 0) {
               <div><dt>Fund deficits paid</dt><dd class="money">{{ m.deficitPaidCents | money }}</dd></div>
@@ -83,10 +111,10 @@
                 @for (entry of group.entries; track entry.id) {
                   <tr>
                     <td>
-                      @if (entry.subcategoryName) {
-                        {{ entry.subcategoryName }} <span class="muted">· {{ entry.categoryName }}</span>
+                      @if (entry.categoryName) {
+                        {{ entry.categoryName }} <span class="muted">· {{ entry.groupName }}</span>
                       } @else {
-                        <span class="muted">Removed subcategory</span>
+                        <span class="muted">Removed category</span>
                       }
                     </td>
                     <td>

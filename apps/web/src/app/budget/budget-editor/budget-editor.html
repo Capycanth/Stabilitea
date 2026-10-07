@@ -48,7 +48,7 @@
           {{ closed() ? monthName(budgetValue.month) + ' is closed' : 'Close ' + monthName(budgetValue.month) }}
         </h2>
         @if (closed()) {
-          <p class="small">Income, spending and fund balances were settled into savings. Reopen to make corrections, then close again.</p>
+          <p class="small">Income, spending, funds and recurring bills were settled into savings. Reopen to make corrections, then close again.</p>
           <div>
             <button type="button" class="btn" [disabled]="!budgetValue.canReopen || busy()" (click)="reopen()" aria-describedby="reopen-hint">
               <app-icon name="unlock" />Reopen {{ monthName(budgetValue.month) }}
@@ -78,7 +78,7 @@
         @if (hasPayableDeficit()) {
           Funds that are over budget can be paid down from savings.
         } @else {
-          Regular subcategories spend from savings; funds keep their own balance, and a fund deficit can be paid from savings.
+          Standard categories spend from savings. Funds keep their own balance, and a fund deficit can be paid from savings. Recurring bills store a share each month and are paid from what's stored.
         }
       </span>
     </p>
@@ -88,19 +88,19 @@
         <caption class="visually-hidden">Budget lines for {{ label() }}</caption>
         <thead>
           <tr>
-            <th scope="col">Subcategory</th>
-            <th scope="col">Limit</th>
+            <th scope="col">Category</th>
+            <th scope="col">Limit / share</th>
             <th scope="col" class="end">Balance in</th>
             <th scope="col" class="end">From savings</th>
             <th scope="col" class="end">Spent</th>
             <th scope="col" class="end">Remaining</th>
           </tr>
         </thead>
-        @for (group of budgetValue.categories; track group.categoryId) {
+        @for (group of budgetValue.groups; track group.groupId) {
           <tbody>
             <tr class="group-row">
               <th scope="rowgroup" colspan="6">
-                <span>{{ group.categoryName }}</span>
+                <span>{{ group.groupName }}</span>
               </th>
             </tr>
             @for (line of group.lines; track line.id) {
@@ -118,7 +118,7 @@
           </tbody>
         } @empty {
           <tbody>
-            <tr><td colspan="6" class="empty-cell">No expense subcategories to budget. Add some on the Categories page.</td></tr>
+            <tr><td colspan="6" class="empty-cell">No expense categories to budget. Add some on the Categories page.</td></tr>
           </tbody>
         }
         <tfoot>
@@ -144,13 +144,13 @@
           @for (payment of budgetValue.deficitPayments; track payment.id) {
             <li>
               <span>
-                <strong>{{ payment.subcategoryName ?? 'Removed subcategory' }}</strong>
-                <span class="muted"> · {{ payment.categoryName }} · {{ paidOn(payment) }}</span>
+                <strong>{{ payment.categoryName ?? 'Removed category' }}</strong>
+                <span class="muted"> · {{ payment.groupName }} · {{ paidOn(payment) }}</span>
               </span>
               <span class="money">{{ payment.amountCents | money }}</span>
               @if (!closed()) {
                 <button type="button" class="btn btn-sm btn-quiet" [disabled]="busy()" (click)="undoPayment(payment)">
-                  Undo<span class="visually-hidden"> {{ payment.amountCents | money }} payment for {{ payment.subcategoryName }}</span>
+                  Undo<span class="visually-hidden"> {{ payment.amountCents | money }} payment for {{ payment.categoryName }}</span>
                 </button>
               }
             </li>

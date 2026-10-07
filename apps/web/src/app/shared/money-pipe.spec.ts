@@ -24,6 +24,6 @@ describe('validMonthMatch', () => {
   it('matches real YYYY-MM months only', () => {
     expect(match('2026-09')).toBe(true);
     expect(match('2026-13')).toBe(false);
-    expect(match('categories')).toBe(false);
+    expect(match('groups')).toBe(false);
   });
 });

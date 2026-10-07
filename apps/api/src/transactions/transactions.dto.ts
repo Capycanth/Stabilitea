@@ -27,9 +27,9 @@ export class CreateTransactionDto implements CreateTransactionRequest {
   @Max(MAX_CENTS, { message: 'Amount is too large' })
   amountCents!: number;
 
-  @IsInt({ message: 'Choose a subcategory' })
-  @Min(1, { message: 'Choose a subcategory' })
-  subcategoryId!: number;
+  @IsInt({ message: 'Choose a category' })
+  @Min(1, { message: 'Choose a category' })
+  categoryId!: number;
 
   @IsOptional()
   @Transform(trimToNull)
@@ -60,9 +60,9 @@ export class UpdateTransactionDto implements UpdateTransactionRequest {
   amountCents?: number;
 
   @IsOptional()
-  @IsInt({ message: 'Choose a subcategory' })
-  @Min(1, { message: 'Choose a subcategory' })
-  subcategoryId?: number;
+  @IsInt({ message: 'Choose a category' })
+  @Min(1, { message: 'Choose a category' })
+  categoryId?: number;
 
   @IsOptional()
   @Transform(trimToNull)
@@ -88,10 +88,10 @@ export class TransactionQueryDto implements TransactionFilters {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  categoryId?: number;
+  groupId?: number;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  subcategoryId?: number;
+  categoryId?: number;
 }

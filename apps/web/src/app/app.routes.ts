@@ -11,7 +11,7 @@ export const routes: Routes = [
       {
         path: 'categories',
         title: 'Categories · Stabilitea',
-        loadComponent: () => import('./categories/category-tree/category-tree').then((m) => m.CategoryTree),
+        loadComponent: () => import('./categories/group-tree/group-tree').then((m) => m.GroupTree),
       },
       {
         path: 'savings',

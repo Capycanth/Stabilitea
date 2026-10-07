@@ -1,17 +1,17 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
-import type { ApiErrorBody, CategoryDto, TransactionDto } from '@stabilitea/shared';
+import type { ApiErrorBody, GroupDto, TransactionDto } from '@stabilitea/shared';
 import { TransactionForm } from './transaction-form';
 
-const categories: CategoryDto[] = [
+const groups: GroupDto[] = [
   {
     id: 1,
     name: 'Income',
     kind: 'income',
     sortOrder: 0,
     archivedAt: null,
-    subcategories: [{ id: 10, categoryId: 1, name: 'Salary', defaultLimitCents: 0, fund: false, sortOrder: 0, archivedAt: null, transactionCount: 0 }],
+    categories: [{ id: 10, groupId: 1, name: 'Salary', defaultLimitCents: 0, type: 'standard', billCents: null, billMonths: null, nextDueMonth: null, sortOrder: 0, archivedAt: null, transactionCount: 0 }],
   },
   {
     id: 2,
@@ -19,7 +19,7 @@ const categories: CategoryDto[] = [
     kind: 'expense',
     sortOrder: 1,
     archivedAt: null,
-    subcategories: [{ id: 20, categoryId: 2, name: 'Groceries', defaultLimitCents: 50_000, fund: false, sortOrder: 0, archivedAt: null, transactionCount: 0 }],
+    categories: [{ id: 20, groupId: 2, name: 'Groceries', defaultLimitCents: 50_000, type: 'standard', billCents: null, billMonths: null, nextDueMonth: null, sortOrder: 0, archivedAt: null, transactionCount: 0 }],
   },
 ];
 
@@ -50,7 +50,7 @@ describe('TransactionForm', () => {
     http = TestBed.inject(HttpTestingController);
     fixture = TestBed.createComponent(TransactionForm);
     fixture.componentRef.setInput('month', '2026-08');
-    fixture.componentRef.setInput('categories', categories);
+    fixture.componentRef.setInput('groups', groups);
     await fixture.whenStable();
     el = fixture.nativeElement;
     fixture.componentInstance.open();
@@ -64,9 +64,9 @@ describe('TransactionForm', () => {
     expect(input('#tx-date').value).toBe('2026-08-01');
   });
 
-  it('requires an amount and a category before saving', async () => {
+  it('requires an amount and a group before saving', async () => {
     await submit();
-    expect(errors()).toEqual(['Enter an amount', 'Choose a category']);
+    expect(errors()).toEqual(['Enter an amount', 'Choose a group']);
     http.expectNone('/api/transactions');
     expect(input('#tx-amount').getAttribute('aria-invalid')).toBe('true');
     expect(el.querySelector('.field-error')?.getAttribute('role')).toBe('alert');
@@ -82,12 +82,12 @@ describe('TransactionForm', () => {
     expect(errors()).toContain('Amount must be greater than 0');
   });
 
-  it('converts dollars to cents and infers the type from the category', async () => {
+  it('converts dollars to cents and infers the type from the group', async () => {
     const saved: TransactionDto[] = [];
     fixture.componentInstance.saved.subscribe((tx) => saved.push(tx));
 
     type('#tx-amount', '42.5');
-    type('#tx-subcategory', '20');
+    type('#tx-category', '20');
     type('#tx-payee', '  Corner Bakery ');
     await fixture.whenStable();
     expect(el.textContent).toContain('Recorded as an expense.');
@@ -99,11 +99,11 @@ describe('TransactionForm', () => {
       date: '2026-08-01',
       type: 'expense',
       amountCents: 4250,
-      subcategoryId: 20,
+      categoryId: 20,
       payee: 'Corner Bakery',
       note: null,
     });
-    req.flush({ id: 1, ...req.request.body, subcategoryName: 'Groceries', categoryId: 2, categoryName: 'Food' });
+    req.flush({ id: 1, ...req.request.body, categoryName: 'Groceries', groupId: 2, groupName: 'Food' });
     await fixture.whenStable();
 
     expect(saved).toHaveLength(1);
@@ -112,7 +112,7 @@ describe('TransactionForm', () => {
 
   it('maps server field errors onto the form', async () => {
     type('#tx-amount', '10');
-    type('#tx-subcategory', '10');
+    type('#tx-category', '10');
     await submit();
 
     const body: ApiErrorBody = {
@@ -131,7 +131,7 @@ describe('TransactionForm', () => {
 
   it('explains when the month is closed', async () => {
     type('#tx-amount', '10');
-    type('#tx-subcategory', '20');
+    type('#tx-category', '20');
     await submit();
     http
       .expectOne('/api/transactions')

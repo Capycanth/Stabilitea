@@ -1,66 +1,86 @@
+import type { RecurringStatus } from './recurring.js';
+
 /**
  * API contract shared by apps/api and apps/web.
  * All money is integer cents. Months are 'YYYY-MM'; dates are 'YYYY-MM-DD'.
  */
 
-export type CategoryKind = 'income' | 'expense';
-export type TransactionType = CategoryKind;
+export type GroupKind = 'income' | 'expense';
+export type TransactionType = GroupKind;
 export type MonthStatus = 'open' | 'closed';
 
-// ---------------------------------------------------------------------------
-// Categories
-// ---------------------------------------------------------------------------
+/**
+ * How an expense category handles money (income categories are always 'standard').
+ * - standard: spending comes out of savings when the month closes; the limit is a target.
+ * - fund: keeps its own balance month to month (positive or negative); the limit is moved in from savings each month.
+ * - recurring: a bill of `billCents` due every `billMonths` months. Each month stores a share of the bill (taken out of
+ *   savings at close); the payment is made from the stored money and any leftover or shortfall settles with savings.
+ */
+export type CategoryType = 'standard' | 'fund' | 'recurring';
 
-export interface SubcategoryDto {
-  id: number;
-  categoryId: number;
-  name: string;
-  defaultLimitCents: number;
-  /**
-   * Expense only. true = a fund: it keeps its own balance, carried month to month (positive or negative).
-   * false = regular: spending simply comes out of savings when the month closes.
-   */
-  fund: boolean;
-  sortOrder: number;
-  archivedAt: string | null;
-  /** Number of transactions recorded against this subcategory (all months). */
-  transactionCount: number;
-}
+// ---------------------------------------------------------------------------
+// Groups
+// ---------------------------------------------------------------------------
 
 export interface CategoryDto {
   id: number;
+  groupId: number;
   name: string;
-  kind: CategoryKind;
+  defaultLimitCents: number;
+  type: CategoryType;
+  /** Recurring bill amount. Set for recurring categories (kept, but unused, after switching away). */
+  billCents: number | null;
+  /** Months the bill covers (it's due once every this many months). */
+  billMonths: number | null;
+  /** 'YYYY-MM' the bill is next due. Moves on a cycle when a closed month records the payment. */
+  nextDueMonth: string | null;
   sortOrder: number;
   archivedAt: string | null;
-  subcategories: SubcategoryDto[];
+  /** Number of transactions recorded against this category (all months). */
+  transactionCount: number;
 }
 
-export interface CreateCategoryRequest {
+export interface GroupDto {
+  id: number;
   name: string;
-  kind: CategoryKind;
+  kind: GroupKind;
+  sortOrder: number;
+  archivedAt: string | null;
+  categories: CategoryDto[];
 }
 
-export interface UpdateCategoryRequest {
+export interface CreateGroupRequest {
+  name: string;
+  kind: GroupKind;
+}
+
+export interface UpdateGroupRequest {
   name?: string;
   sortOrder?: number;
   archived?: boolean;
 }
 
-export interface CreateSubcategoryRequest {
-  name: string;
-  defaultLimitCents?: number;
-  /** Expense subcategories only. */
-  fund?: boolean;
+/** Recurring bill settings. All three are required when a category becomes recurring. */
+export interface RecurringBillFields {
+  billCents?: number;
+  billMonths?: number;
+  nextDueMonth?: string;
 }
 
-export interface UpdateSubcategoryRequest {
-  name?: string;
-  /** Move to another category of the same kind. */
-  categoryId?: number;
+export interface CreateCategoryRequest extends RecurringBillFields {
+  name: string;
   defaultLimitCents?: number;
-  /** Expense subcategories only. Open months follow the change; closed months keep their snapshot. */
-  fund?: boolean;
+  /** Fund and recurring are for expense categories only. Default 'standard'. */
+  type?: CategoryType;
+}
+
+export interface UpdateCategoryRequest extends RecurringBillFields {
+  name?: string;
+  /** Move to another group of the same kind. */
+  groupId?: number;
+  defaultLimitCents?: number;
+  /** Fund and recurring are for expense categories only. Open months follow the change; closed months keep theirs. */
+  type?: CategoryType;
   sortOrder?: number;
   archived?: boolean;
 }
@@ -74,10 +94,10 @@ export interface TransactionDto {
   date: string;
   type: TransactionType;
   amountCents: number;
-  subcategoryId: number;
-  subcategoryName: string;
   categoryId: number;
   categoryName: string;
+  groupId: number;
+  groupName: string;
   payee: string | null;
   note: string | null;
   createdAt: string;
@@ -88,7 +108,7 @@ export interface CreateTransactionRequest {
   date: string;
   type: TransactionType;
   amountCents: number;
-  subcategoryId: number;
+  categoryId: number;
   payee?: string | null;
   note?: string | null;
 }
@@ -97,31 +117,51 @@ export type UpdateTransactionRequest = Partial<CreateTransactionRequest>;
 
 export interface TransactionFilters {
   type?: TransactionType;
+  groupId?: number;
   categoryId?: number;
-  subcategoryId?: number;
 }
 
 // ---------------------------------------------------------------------------
 // Budgets
 // ---------------------------------------------------------------------------
 
+/** A recurring line's bill as of its month (snapshot; closed months keep theirs). */
+export interface RecurringLineInfo {
+  billCents: number;
+  billMonths: number;
+  /** Due month of the cycle this month belongs to. */
+  dueMonth: string;
+  status: RecurringStatus;
+}
+
 export interface BudgetLineDto {
   id: number;
   month: string;
-  subcategoryId: number;
-  subcategoryName: string;
-  /** Regular line: this month's spending target. Fund line: this month's contribution from savings. */
+  categoryId: number;
+  categoryName: string;
+  /**
+   * Standard: this month's spending target. Fund: this month's contribution from savings. Recurring: this month's
+   * share of the bill, calculated (not editable) and stored at close.
+   */
   limitCents: number;
-  /** Fund balance brought in from last month. Negative when the fund carried a deficit. Always 0 for new regular lines. */
+  /**
+   * Fund: balance brought in from last month (negative for a carried deficit). Recurring: money already stored for
+   * the bill. 0 for standard lines.
+   */
   carryInCents: number;
   /** Moved from savings this month to cover this fund's deficit. */
   deficitPaidCents: number;
   /** limit + carryIn + deficitPaid. May be negative. */
   availableCents: number;
-  /** Snapshot of the subcategory's fund flag for this month. */
-  fund: boolean;
+  /** Snapshot of the category's type for this month. */
+  type: CategoryType;
+  /** Set for recurring lines. */
+  recurring: RecurringLineInfo | null;
   spentCents: number;
-  /** available - spent. For a fund, its balance at the end of the month. */
+  /**
+   * available − spent. Fund: its balance at the end of the month. Recurring: stored after this month, or once paid,
+   * the leftover (positive) or shortfall (negative) that settles with savings at close.
+   */
   remainingCents: number;
 }
 
@@ -130,17 +170,17 @@ export interface DeficitPaymentDto {
   id: number;
   month: string;
   budgetLineId: number | null;
-  subcategoryId: number | null;
-  subcategoryName: string | null;
+  categoryId: number | null;
   categoryName: string | null;
+  groupName: string | null;
   /** Positive amount moved out of savings. */
   amountCents: number;
   createdAt: string;
 }
 
-export interface BudgetCategoryGroup {
-  categoryId: number;
-  categoryName: string;
+export interface BudgetGroup {
+  groupId: number;
+  groupName: string;
   lines: BudgetLineDto[];
 }
 
@@ -157,7 +197,7 @@ export interface BudgetMonthDto {
   savingsBalanceCents: number;
   /** Sum of deficit payments recorded on this month. */
   deficitPaidCents: number;
-  categories: BudgetCategoryGroup[];
+  groups: BudgetGroup[];
   /** Deficit payments recorded on this month, oldest first. */
   deficitPayments: DeficitPaymentDto[];
 }
@@ -174,10 +214,12 @@ export interface UpdateBudgetLineRequest {
 // Summary
 // ---------------------------------------------------------------------------
 
-export interface SubcategorySummary {
+export interface CategorySummary {
   id: number;
   name: string;
-  fund: boolean;
+  type: CategoryType;
+  /** Set for recurring lines. */
+  recurring: RecurringLineInfo | null;
   limitCents: number;
   carryInCents: number;
   deficitPaidCents: number;
@@ -186,16 +228,16 @@ export interface SubcategorySummary {
   remainingCents: number;
 }
 
-export interface CategorySummary {
+export interface GroupSummary {
   id: number;
   name: string;
-  /** Sum of subcategory limits. */
+  /** Sum of category limits. */
   limitCents: number;
   /** Limits + carry-in + deficit paid. May be negative. */
   availableCents: number;
   deficitPaidCents: number;
   spentCents: number;
-  subcategories: SubcategorySummary[];
+  categories: CategorySummary[];
 }
 
 export interface MonthSummary {
@@ -207,17 +249,19 @@ export interface MonthSummary {
   netCents: number;
   /** Sum of fund limits: what closing moves from savings into funds. */
   fundContributionCents: number;
+  /** Sum of recurring shares: what closing stores from savings for recurring bills. */
+  recurringStoredCents: number;
   /** Moved from savings to cover fund deficits this month. */
   deficitPaidCents: number;
   /**
-   * Net change to savings from this month: income − regular spending − fund contributions − deficits paid,
-   * plus any balance a fund line hands back to savings (it was switched to regular). For an open month this is
-   * the projection if it closed today.
+   * Net change to savings from this month: income − standard spending − fund contributions − recurring shares −
+   * deficits paid, plus releases (a recurring bill's leftover or shortfall once paid, or a balance a category hands
+   * back after changing type). For an open month this is the projection if it closed today.
    */
   savingsChangeCents: number;
   /** Earliest budgeted month before this one that is still open, if any. */
   earliestOpenPastMonth: string | null;
-  categories: CategorySummary[];
+  groups: GroupSummary[];
 }
 
 // ---------------------------------------------------------------------------
@@ -225,19 +269,27 @@ export interface MonthSummary {
 // ---------------------------------------------------------------------------
 
 /**
- * Closing a month writes 'income' (+), 'spending' (− regular subcategories), 'fund_contribution' (− a fund's limit)
- * and 'fund_release' (± a fund balance that has no fund line to carry into). 'deficit_payment' (−) is written when
- * a fund's deficit is paid from savings.
+ * Closing a month writes 'income' (+), 'spending' (− standard categories), 'fund_contribution' (− a fund's limit),
+ * 'fund_release' (± a fund balance that has no fund line to carry into), 'recurring_store' (− a recurring bill's
+ * share) and 'recurring_release' (± what's left of the stored money once the bill is paid, or all of it when the
+ * category stops being recurring). 'deficit_payment' (−) is written when a fund's deficit is paid from savings.
  */
-export type SavingsEntryKind = 'income' | 'spending' | 'fund_contribution' | 'fund_release' | 'deficit_payment';
+export type SavingsEntryKind =
+  | 'income'
+  | 'spending'
+  | 'fund_contribution'
+  | 'fund_release'
+  | 'recurring_store'
+  | 'recurring_release'
+  | 'deficit_payment';
 
 export interface SavingsEntryDto {
   id: number;
   kind: SavingsEntryKind;
   month: string;
-  subcategoryId: number | null;
-  subcategoryName: string | null;
+  categoryId: number | null;
   categoryName: string | null;
+  groupName: string | null;
   /** Positive adds to savings, negative takes from it. */
   amountCents: number;
   createdAt: string;
@@ -252,6 +304,10 @@ export interface SavingsMonthDto {
   fundContributionCents: number;
   /** Fund balances handed back to savings (may be negative). */
   fundReleaseCents: number;
+  /** Stored for recurring bills (positive number). */
+  recurringStoredCents: number;
+  /** Recurring leftovers (+) and shortfalls (−) settled with savings once bills were paid. */
+  recurringReleaseCents: number;
   /** Paid from savings to cover fund deficits (positive number). */
   deficitPaidCents: number;
   /** Sum of the month's entries. */
@@ -261,11 +317,23 @@ export interface SavingsMonthDto {
 }
 
 export interface FundBalanceDto {
-  subcategoryId: number;
-  subcategoryName: string;
+  categoryId: number;
   categoryName: string;
+  groupName: string;
   /** Balance after the latest close, including deficits paid since. May be negative. */
   balanceCents: number;
+}
+
+export interface RecurringBalanceDto {
+  categoryId: number;
+  categoryName: string;
+  groupName: string;
+  billCents: number;
+  billMonths: number;
+  /** The cycle the stored money is for. */
+  dueMonth: string;
+  /** Stored after the latest close. */
+  storedCents: number;
 }
 
 export interface SavingsDto {
@@ -273,6 +341,8 @@ export interface SavingsDto {
   balanceCents: number;
   /** Active funds and their balances. */
   funds: FundBalanceDto[];
+  /** Active recurring bills and the money stored for them. */
+  recurring: RecurringBalanceDto[];
   /** Per-month totals, newest first. */
   months: SavingsMonthDto[];
   /** Newest month first. */
@@ -304,11 +374,11 @@ export interface ReportYearsDto {
 
 export interface ExportDto {
   app: 'stabilitea';
-  /** 2: funds on subcategories; savings ledger tracks income, spending and fund flows. */
-  schemaVersion: 2;
+  /** 3: groups and categories (renamed from categories and subcategories); category type with recurring bills. */
+  schemaVersion: 3;
   exportedAt: string;
+  groups: unknown[];
   categories: unknown[];
-  subcategories: unknown[];
   budgetMonths: unknown[];
   budgetLines: unknown[];
   transactions: unknown[];

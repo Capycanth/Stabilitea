@@ -1,6 +1,6 @@
 <div class="head">
   <div>
-    <p class="eyebrow">{{ category().kind === 'income' ? 'Income category' : 'Expense category' }}</p>
+    <p class="eyebrow">Category of {{ parent().name }}</p>
     <h2>{{ category().name }}</h2>
   </div>
   @if (category().archivedAt) {
@@ -8,66 +8,58 @@
   }
 </div>
 
-<form class="stack" novalidate [formRoot]="renameForm">
+<form class="stack" novalidate [formRoot]="categoryForm">
   <div class="field">
     <label for="category-name">Name</label>
-    <div class="row nowrap">
-      <input id="category-name" class="input" type="text" autocomplete="off" [formField]="renameForm.name" aria-describedby="category-name-errors" />
-      <button type="submit" class="btn" [disabled]="renameForm().submitting() || renameModel().name === category().name">Rename</button>
-    </div>
-    <div id="category-name-errors">
-      @for (error of renameForm.name().errors(); track $index) {
-        <p class="field-error" role="alert">{{ error.message }}</p>
+    <input id="category-name" class="input" type="text" autocomplete="off" [formField]="categoryForm.name" aria-describedby="category-errors" />
+  </div>
+  @if (parent().kind === 'expense') {
+    <app-category-type-fields idPrefix="category" [fields]="categoryForm.typeFields" />
+    @if (!isRecurring()) {
+      <div class="field limit">
+        <label for="category-limit">Default limit</label>
+        <app-money-input inputId="category-limit" describedBy="category-errors" [formField]="categoryForm.defaultLimitCents" />
+      </div>
+    }
+  }
+  <div class="field">
+    <label for="category-parent">Group</label>
+    <select id="category-parent" class="input" [formField]="categoryForm.groupId">
+      @for (option of moveTargets(); track option.id) {
+        <option [value]="'' + option.id">{{ option.name }}</option>
       }
-    </div>
+    </select>
+  </div>
+  <div id="category-errors">
+    @for (error of allErrors(); track $index) {
+      <p class="field-error" role="alert">{{ error }}</p>
+    }
+  </div>
+  <div>
+    <button type="submit" class="btn btn-primary" [disabled]="categoryForm().submitting() || !dirty()">Save changes</button>
   </div>
 </form>
 
+@if (parent().kind === 'expense') {
+  <p class="hint">Type and bill changes apply to open months only; closed months keep theirs.</p>
+}
+
 <div class="row">
-  <button type="button" class="btn btn-sm" [disabled]="busy() || isFirst()" (click)="move(-1)">
+  <button type="button" class="btn btn-sm" [disabled]="busy() || index() === 0" (click)="move(-1)">
     <app-icon name="arrow-up" [size]="16" />Move up
   </button>
-  <button type="button" class="btn btn-sm" [disabled]="busy() || isLast()" (click)="move(1)">
+  <button type="button" class="btn btn-sm" [disabled]="busy() || index() >= count() - 1" (click)="move(1)">
     <app-icon name="arrow-down" [size]="16" />Move down
   </button>
   <button type="button" class="btn btn-sm" [disabled]="busy()" (click)="toggleArchived()">
     <app-icon name="archive" [size]="16" />{{ category().archivedAt ? 'Unarchive' : 'Archive' }}
   </button>
 </div>
-@if (!category().archivedAt) {
-  <p class="hint">Archived categories are hidden from new budgets; their history stays intact.</p>
-}
-
-<form class="stack sub-form" novalidate [formRoot]="subForm" aria-labelledby="add-sub-title">
-  <h3 id="add-sub-title">Add subcategory</h3>
-  <div class="fields">
-    <div class="field grow">
-      <label for="sub-name">Name</label>
-      <input id="sub-name" class="input" type="text" autocomplete="off" [formField]="subForm.name" aria-describedby="sub-errors" />
-    </div>
-    @if (category().kind === 'expense') {
-      <div class="field limit">
-        <label for="sub-limit">Default limit</label>
-        <app-money-input inputId="sub-limit" describedBy="sub-errors" [formField]="subForm.defaultLimitCents" />
-      </div>
-      <label class="checkbox fund">
-        <input type="checkbox" [formField]="subForm.fund" />
-        Fund
-      </label>
-    }
-    <button type="submit" class="btn btn-primary" [disabled]="subForm().submitting()"><app-icon name="plus" />Add</button>
-  </div>
-  @if (category().kind === 'expense') {
-    <p class="hint">A fund keeps its own balance from month to month. Leave it off and spending simply comes out of savings.</p>
+<p class="hint">
+  @if (category().transactionCount > 0) {
+    {{ category().transactionCount }} transaction{{ category().transactionCount === 1 ? '' : 's' }} recorded.
+    Categories with transactions can be archived but not deleted.
+  } @else {
+    Archived categories are hidden from new budgets and the transaction form.
   }
-  <div id="sub-errors">
-    @if (subForm.name().touched()) {
-      @for (error of subForm.name().errors(); track $index) {
-        <p class="field-error" role="alert">{{ error.message }}</p>
-      }
-    }
-    @for (error of subForm.defaultLimitCents().errors(); track $index) {
-      <p class="field-error" role="alert">{{ error.message }}</p>
-    }
-  </div>
-</form>
+</p>

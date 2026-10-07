@@ -36,7 +36,7 @@ export class BudgetEditor {
   protected readonly monthName = monthName;
 
   protected readonly totals = computed(() => {
-    const lines = this.budget.hasValue() ? this.budget.value().categories.flatMap((g) => g.lines) : [];
+    const lines = this.budget.hasValue() ? this.budget.value().groups.flatMap((g) => g.lines) : [];
     return lines.reduce(
       (t, l) => ({
         limit: t.limit + l.limitCents,
@@ -54,12 +54,12 @@ export class BudgetEditor {
       this.budget.hasValue() &&
       !this.closed() &&
       this.budget.value().savingsBalanceCents > 0 &&
-      this.budget.value().categories.some((g) => g.lines.some((l) => l.fund && l.remainingCents < 0)),
+      this.budget.value().groups.some((g) => g.lines.some((l) => l.type === 'fund' && l.remainingCents < 0)),
   );
 
   protected readonly closeExplanation = computed(
     () =>
-      `Closing adds this month's income to savings and takes out regular spending and fund contributions. Each fund's balance carries into ${this.nextLabel()}, even if it's negative.`,
+      `Closing adds this month's income to savings and takes out standard spending, fund contributions and recurring shares. Each fund's balance and the money stored for each unpaid bill carry into ${this.nextLabel()}; a bill paid this month settles its leftover or shortfall with savings.`,
   );
 
   private readonly incomeModel = linkedSignal({
@@ -96,16 +96,16 @@ export class BudgetEditor {
     const paying = Math.min(deficit, balance);
     const partial = paying < deficit;
     const ok = await this.confirm().ask({
-      title: `Pay ${line.subcategoryName}'s deficit from savings?`,
+      title: `Pay ${line.categoryName}'s deficit from savings?`,
       message: partial
         ? `Savings has ${formatCents(balance)}, which covers ${formatCents(paying)} of the ${formatCents(deficit)} deficit. Savings will drop to $0.00 and ${formatCents(deficit - paying)} will still carry forward.`
-        : `This moves ${formatCents(paying)} from savings (balance ${formatCents(balance)}) to bring ${line.subcategoryName} back to $0.00. It's recorded on ${this.label()}'s budget and in the yearly report.`,
+        : `This moves ${formatCents(paying)} from savings (balance ${formatCents(balance)}) to bring ${line.categoryName} back to $0.00. It's recorded on ${this.label()}'s budget and in the yearly report.`,
       confirmLabel: `Pay ${formatCents(paying)}`,
     });
     if (ok) {
       await this.run(
         () => this.api.payDeficit(this.month(), line.id),
-        `Paid ${formatCents(paying)} of ${line.subcategoryName}'s deficit from savings.`,
+        `Paid ${formatCents(paying)} of ${line.categoryName}'s deficit from savings.`,
       );
     }
   }
@@ -135,7 +135,7 @@ export class BudgetEditor {
     const month = this.month();
     const ok = await this.confirm().ask({
       title: `Reopen ${monthLabel(month)}?`,
-      message: `This removes ${monthName(month)}'s income, spending and fund entries from savings and resets ${this.nextLabel()}'s fund balances until you close it again. Deficits already paid from savings stay recorded.`,
+      message: `This removes ${monthName(month)}'s income, spending, fund and recurring entries from savings and resets ${this.nextLabel()}'s fund balances and stored money until you close it again. Deficits already paid from savings stay recorded.`,
       confirmLabel: `Reopen ${monthName(month)}`,
     });
     if (ok) await this.run(() => this.api.reopen(month), `${monthLabel(month)} reopened.`);

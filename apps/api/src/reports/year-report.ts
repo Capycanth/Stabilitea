@@ -1,16 +1,35 @@
 import { Injectable } from '@nestjs/common';
-import { monthBounds } from '@stabilitea/shared';
-import { DEFICIT_PAYMENT, FUND_CONTRIBUTION, FUND_RELEASE, lineAvailable } from '../budgets/budget-lifecycle.service.js';
+import { type CategoryType, monthBounds } from '@stabilitea/shared';
+import {
+  DEFICIT_PAYMENT,
+  FUND,
+  FUND_CONTRIBUTION,
+  FUND_RELEASE,
+  lineAvailable,
+  RECURRING,
+  RECURRING_RELEASE,
+  RECURRING_STORE,
+} from '../budgets/budget-lifecycle.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 export type MonthReportStatus = 'open' | 'closed' | 'not budgeted';
-export type CloseOutcome = 'regular' | 'carried' | 'carried-deficit' | 'released' | 'open';
+export type CloseOutcome =
+  | 'regular'
+  | 'carried'
+  | 'carried-deficit'
+  | 'released'
+  | 'stored'
+  | 'settled'
+  | 'recurring-released'
+  | 'open';
 
 export interface LineReport {
   month: string;
+  groupName: string;
   categoryName: string;
-  subcategoryName: string;
-  fund: boolean;
+  type: CategoryType;
+  /** Recurring lines: the cycle's due month. */
+  dueMonth: string | null;
   limitCents: number;
   carryInCents: number;
   deficitPaidCents: number;
@@ -34,6 +53,10 @@ export interface MonthReport {
   fundContributionCents: number;
   /** Fund balances handed back to savings at close (may be negative). */
   fundReleaseCents: number;
+  /** Stored from savings for recurring bills at close. */
+  recurringStoredCents: number;
+  /** Recurring leftovers (+) and shortfalls (−) settled with savings at close. */
+  recurringReleaseCents: number;
   deficitPaidCents: number;
   /** Sum of the month's savings entries (0 for a month that isn't closed, apart from deficit payments). */
   savingsChangeCents: number;
@@ -41,8 +64,8 @@ export interface MonthReport {
   lines: LineReport[];
 }
 
-export interface CategoryYearReport {
-  categoryName: string;
+export interface GroupYearReport {
+  groupName: string;
   budgetedCents: number;
   spentCents: number;
   deficitPaidCents: number;
@@ -52,7 +75,7 @@ export interface YearReport {
   year: number;
   generatedAt: Date;
   months: MonthReport[];
-  categories: CategoryYearReport[];
+  groups: GroupYearReport[];
   totals: {
     plannedIncomeCents: number;
     incomeCents: number;
@@ -61,6 +84,8 @@ export interface YearReport {
     budgetedCents: number;
     fundContributionCents: number;
     fundReleaseCents: number;
+    recurringStoredCents: number;
+    recurringReleaseCents: number;
     deficitPaidCents: number;
     savingsChangeCents: number;
     deficitPaymentCount: number;
@@ -70,9 +95,19 @@ export interface YearReport {
   };
 }
 
-function outcomeFor(status: MonthReportStatus, fund: boolean, released: boolean, remaining: number): CloseOutcome {
+function outcomeFor(
+  status: MonthReportStatus,
+  type: string,
+  released: boolean,
+  spentCents: number,
+  remaining: number,
+): CloseOutcome {
   if (status !== 'closed') return 'open';
-  if (!fund) return 'regular';
+  if (type === RECURRING) {
+    if (spentCents > 0) return 'settled';
+    return released ? 'recurring-released' : 'stored';
+  }
+  if (type !== FUND) return 'regular';
   if (released) return 'released';
   return remaining < 0 ? 'carried-deficit' : 'carried';
 }
@@ -101,30 +136,30 @@ export class YearReportBuilder {
     const lastMonth = `${year}-12`;
     const monthKeys = Array.from({ length: 12 }, (_, i) => `${year}-${String(i + 1).padStart(2, '0')}`);
 
-    const [budgetMonths, transactions, savingsBefore, entries, subcategories] = await Promise.all([
+    const [budgetMonths, transactions, savingsBefore, entries, categories] = await Promise.all([
       this.prisma.budgetMonth.findMany({
         where: { month: { gte: firstMonth, lte: lastMonth } },
         include: { lines: true },
       }),
       this.prisma.transaction.findMany({
         where: { date: { gte: monthBounds(firstMonth).first, lte: monthBounds(lastMonth).last } },
-        select: { date: true, type: true, amountCents: true, subcategoryId: true },
+        select: { date: true, type: true, amountCents: true, categoryId: true },
       }),
       this.prisma.savingsEntry.aggregate({ where: { month: { lt: firstMonth } }, _sum: { amountCents: true } }),
       this.prisma.savingsEntry.findMany({ where: { month: { gte: firstMonth, lte: lastMonth } } }),
-      this.prisma.subcategory.findMany({ include: { category: true } }),
+      this.prisma.category.findMany({ include: { group: true } }),
     ]);
 
-    const subById = new Map(subcategories.map((s) => [s.id, s]));
-    const sortKey = (subcategoryId: number) => {
-      const sub = subById.get(subcategoryId);
-      return sub ? [sub.category.sortOrder, sub.category.id, sub.sortOrder, sub.id] : [Infinity, 0, 0, subcategoryId];
+    const categoryById = new Map(categories.map((s) => [s.id, s]));
+    const sortKey = (categoryId: number) => {
+      const category = categoryById.get(categoryId);
+      return category ? [category.group.sortOrder, category.group.id, category.sortOrder, category.id] : [Infinity, 0, 0, categoryId];
     };
     const byMonth = new Map(budgetMonths.map((m) => [m.month, m]));
 
     let balance = savingsBefore._sum.amountCents ?? 0;
     const savingsBalanceStartCents = balance;
-    const categoryTotals = new Map<number, CategoryYearReport & { sort: number[] }>();
+    const groupTotals = new Map<number, GroupYearReport & { sort: number[] }>();
     let deficitPaymentCount = 0;
 
     const months: MonthReport[] = monthKeys.map((month) => {
@@ -134,13 +169,15 @@ export class YearReportBuilder {
       const incomeCents = monthTx.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amountCents, 0);
       const spent = new Map<number, number>();
       for (const t of monthTx) {
-        if (t.type === 'expense') spent.set(t.subcategoryId, (spent.get(t.subcategoryId) ?? 0) + t.amountCents);
+        if (t.type === 'expense') spent.set(t.categoryId, (spent.get(t.categoryId) ?? 0) + t.amountCents);
       }
       const expenseCents = [...spent.values()].reduce((sum, v) => sum + v, 0);
 
       const monthEntries = entries.filter((e) => e.month === month);
       const kindTotal = (kind: string) => monthEntries.filter((e) => e.kind === kind).reduce((sum, e) => sum + e.amountCents, 0);
-      const released = new Set(monthEntries.filter((e) => e.kind === FUND_RELEASE).map((e) => e.subcategoryId));
+      const released = new Set(
+        monthEntries.filter((e) => e.kind === FUND_RELEASE || e.kind === RECURRING_RELEASE).map((e) => e.categoryId),
+      );
       const payments = monthEntries.filter((e) => e.kind === DEFICIT_PAYMENT);
       deficitPaymentCount += payments.length;
       const savingsChangeCents = monthEntries.reduce((sum, e) => sum + e.amountCents, 0);
@@ -150,46 +187,54 @@ export class YearReportBuilder {
         ...(budget?.lines ?? []),
         // Spending without a budget line this month still shows up.
         ...[...spent.keys()]
-          .filter((id) => !budget?.lines.some((l) => l.subcategoryId === id))
-          .map((id) => ({ subcategoryId: id, limitCents: 0, carryInCents: 0, deficitPaidCents: 0, fund: false })),
+          .filter((id) => !budget?.lines.some((l) => l.categoryId === id))
+          .map((id) => ({
+            categoryId: id,
+            limitCents: 0,
+            carryInCents: 0,
+            deficitPaidCents: 0,
+            type: 'standard',
+            dueMonth: null as string | null,
+          })),
       ].sort((a, b) => {
-        const [ka, kb] = [sortKey(a.subcategoryId), sortKey(b.subcategoryId)];
+        const [ka, kb] = [sortKey(a.categoryId), sortKey(b.categoryId)];
         for (let i = 0; i < ka.length; i++) if (ka[i] !== kb[i]) return ka[i]! - kb[i]!;
         return 0;
       });
 
       const lines: LineReport[] = lineSources.map((line) => {
-        const sub = subById.get(line.subcategoryId);
+        const category = categoryById.get(line.categoryId);
         const availableCents = lineAvailable(line);
-        const spentCents = spent.get(line.subcategoryId) ?? 0;
+        const spentCents = spent.get(line.categoryId) ?? 0;
         const remainingCents = availableCents - spentCents;
 
-        if (sub) {
-          const total = categoryTotals.get(sub.categoryId) ?? {
-            categoryName: sub.category.name,
+        if (category) {
+          const total = groupTotals.get(category.groupId) ?? {
+            groupName: category.group.name,
             budgetedCents: 0,
             spentCents: 0,
             deficitPaidCents: 0,
-            sort: [sub.category.sortOrder, sub.categoryId],
+            sort: [category.group.sortOrder, category.groupId],
           };
           total.budgetedCents += line.limitCents;
           total.spentCents += spentCents;
           total.deficitPaidCents += line.deficitPaidCents;
-          categoryTotals.set(sub.categoryId, total);
+          groupTotals.set(category.groupId, total);
         }
 
         return {
           month,
-          categoryName: sub?.category.name ?? 'Unknown',
-          subcategoryName: sub?.name ?? `#${line.subcategoryId}`,
-          fund: line.fund,
+          groupName: category?.group.name ?? 'Unknown',
+          categoryName: category?.name ?? `#${line.categoryId}`,
+          type: line.type as CategoryType,
+          dueMonth: line.type === RECURRING ? line.dueMonth : null,
           limitCents: line.limitCents,
           carryInCents: line.carryInCents,
           deficitPaidCents: line.deficitPaidCents,
           availableCents,
           spentCents,
           remainingCents,
-          outcome: outcomeFor(status, line.fund, released.has(line.subcategoryId), remainingCents),
+          outcome: outcomeFor(status, line.type, released.has(line.categoryId), spentCents, remainingCents),
         };
       });
 
@@ -203,6 +248,8 @@ export class YearReportBuilder {
         budgetedCents: lines.reduce((sum, l) => sum + l.limitCents, 0),
         fundContributionCents: -kindTotal(FUND_CONTRIBUTION),
         fundReleaseCents: kindTotal(FUND_RELEASE),
+        recurringStoredCents: -kindTotal(RECURRING_STORE),
+        recurringReleaseCents: kindTotal(RECURRING_RELEASE),
         deficitPaidCents: -payments.reduce((sum, e) => sum + e.amountCents, 0),
         savingsChangeCents,
         savingsBalanceEndCents: balance,
@@ -215,7 +262,7 @@ export class YearReportBuilder {
       year,
       generatedAt,
       months,
-      categories: [...categoryTotals.values()]
+      groups: [...groupTotals.values()]
         .sort((a, b) => a.sort[0]! - b.sort[0]! || a.sort[1]! - b.sort[1]!)
         .map(({ sort: _sort, ...rest }) => rest),
       totals: {
@@ -226,6 +273,8 @@ export class YearReportBuilder {
         budgetedCents: sum((m) => m.budgetedCents),
         fundContributionCents: sum((m) => m.fundContributionCents),
         fundReleaseCents: sum((m) => m.fundReleaseCents),
+        recurringStoredCents: sum((m) => m.recurringStoredCents),
+        recurringReleaseCents: sum((m) => m.recurringReleaseCents),
         deficitPaidCents: sum((m) => m.deficitPaidCents),
         savingsChangeCents: sum((m) => m.savingsChangeCents),
         deficitPaymentCount,

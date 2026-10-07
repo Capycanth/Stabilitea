@@ -13,12 +13,17 @@ const MUTED = 'FF6B625A';
 
 const dollars = (cents: number) => Math.round(cents) / 100;
 
+const TYPE_LABEL: Record<string, string> = { standard: 'Standard', fund: 'Fund', recurring: 'Recurring' };
+
 const STATUS_LABEL: Record<MonthReportStatus, string> = { open: 'Open', closed: 'Closed', 'not budgeted': 'Not budgeted' };
 const OUTCOME_LABEL: Record<CloseOutcome, string> = {
   regular: 'Spent from savings',
   carried: 'Fund balance carried',
   'carried-deficit': 'Fund deficit carried',
   released: 'Fund balance released to savings',
+  stored: 'Stored for the bill',
+  settled: 'Bill paid; rest settled with savings',
+  'recurring-released': 'Stored money released to savings',
   open: 'Month open',
 };
 
@@ -46,9 +51,9 @@ function addTitle(sheet: ExcelJS.Worksheet, title: string, subtitle: string, wid
   const titleCell = sheet.getCell(1, 1);
   titleCell.value = title;
   titleCell.font = { bold: true, size: 16, color: { argb: INK } };
-  const sub = sheet.getCell(2, 1);
-  sub.value = subtitle;
-  sub.font = { italic: true, color: { argb: MUTED } };
+  const subtitleCell = sheet.getCell(2, 1);
+  subtitleCell.value = subtitle;
+  subtitleCell.font = { italic: true, color: { argb: MUTED } };
   for (const r of [1, 2]) {
     sheet.getRow(r).eachCell({ includeEmpty: true }, (cell) => {
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: IVORY } };
@@ -83,6 +88,8 @@ export async function renderYearWorkbook(report: YearReport): Promise<Buffer> {
     ['Budgeted (sum of monthly limits)', dollars(t.budgetedCents)],
     ['Moved into funds', dollars(t.fundContributionCents)],
     ['Released from funds to savings', dollars(t.fundReleaseCents)],
+    ['Stored for recurring bills', dollars(t.recurringStoredCents)],
+    ['Recurring leftovers (+) and shortfalls (−) settled', dollars(t.recurringReleaseCents)],
     ['Paid from savings to cover fund deficits', dollars(t.deficitPaidCents)],
     ['Savings balance on Jan 1', dollars(t.savingsBalanceStartCents)],
     ['Change in savings', dollars(t.savingsChangeCents)],
@@ -102,15 +109,15 @@ export async function renderYearWorkbook(report: YearReport): Promise<Buffer> {
   }
 
   summary.addRow([]);
-  const catHeader = summary.addRow(['Spending by category', 'Budgeted', 'Spent', 'Paid from savings']);
+  const catHeader = summary.addRow(['Spending by group', 'Budgeted', 'Spent', 'Paid from savings']);
   styleHeader(catHeader);
   const catStart = catHeader.number + 1;
-  for (const c of report.categories) {
-    const row = summary.addRow([c.categoryName, dollars(c.budgetedCents), dollars(c.spentCents), dollars(c.deficitPaidCents)]);
+  for (const c of report.groups) {
+    const row = summary.addRow([c.groupName, dollars(c.budgetedCents), dollars(c.spentCents), dollars(c.deficitPaidCents)]);
     [2, 3, 4].forEach((i) => (row.getCell(i).numFmt = MONEY));
   }
   const catEnd = summary.lastRow?.number ?? catStart;
-  if (report.categories.length) {
+  if (report.groups.length) {
     const total = summary.addRow([
       'Total',
       { formula: `SUM(B${catStart}:B${catEnd})` },
@@ -133,6 +140,8 @@ export async function renderYearWorkbook(report: YearReport): Promise<Buffer> {
     'Budgeted',
     'Moved into funds',
     'Released from funds',
+    'Stored for recurring bills',
+    'Recurring settled to savings',
     'Paid from savings (fund deficits)',
     'Change in savings',
     'Savings balance (end of month)',
@@ -141,7 +150,7 @@ export async function renderYearWorkbook(report: YearReport): Promise<Buffer> {
   addTitle(
     monthly,
     `${report.year} month by month`,
-    'Savings change = income − regular spending − money moved into funds + fund releases − fund deficits paid. Months with a deficit payment are highlighted.',
+    'Savings change = income − standard spending − money moved into funds + fund releases − money stored for recurring bills + recurring settlements − fund deficits paid. Months with a deficit payment are highlighted.',
     monthlyHeaders.length,
   );
   styleHeader(monthly.addRow(monthlyHeaders));
@@ -157,11 +166,13 @@ export async function renderYearWorkbook(report: YearReport): Promise<Buffer> {
       dollars(m.budgetedCents),
       dollars(m.fundContributionCents),
       dollars(m.fundReleaseCents),
+      dollars(m.recurringStoredCents),
+      dollars(m.recurringReleaseCents),
       dollars(m.deficitPaidCents),
       dollars(m.savingsChangeCents),
       dollars(m.savingsBalanceEndCents),
     ]);
-    for (let i = 3; i <= 12; i++) row.getCell(i).numFmt = MONEY;
+    for (let i = 3; i <= 14; i++) row.getCell(i).numFmt = MONEY;
     if (m.status === 'not budgeted') row.getCell(2).font = { color: { argb: MUTED } };
     if (m.deficitPaidCents > 0) {
       row.eachCell((cell) => (cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ORANGE_SOFT } }));
@@ -172,10 +183,12 @@ export async function renderYearWorkbook(report: YearReport): Promise<Buffer> {
   const totalRow = monthly.addRow([
     'Total',
     '',
-    ...[3, 4, 5, 6, 7, 8, 9, 10, 11].map((i) => ({ formula: `SUM(${col(i)}${firstDataRow}:${col(i)}${lastDataRow})` })),
-    { formula: `${col(12)}${lastDataRow}` },
+    ...[3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map((i) => ({
+      formula: `SUM(${col(i)}${firstDataRow}:${col(i)}${lastDataRow})`,
+    })),
+    { formula: `${col(14)}${lastDataRow}` },
   ]);
-  for (let i = 3; i <= 12; i++) totalRow.getCell(i).numFmt = MONEY;
+  for (let i = 3; i <= 14; i++) totalRow.getCell(i).numFmt = MONEY;
   styleTotal(totalRow);
 
   // ---------------------------------------------------------------- Budget vs actual
@@ -183,11 +196,12 @@ export async function renderYearWorkbook(report: YearReport): Promise<Buffer> {
   detail.pageSetup.printTitlesRow = '4:4';
   const detailHeaders = [
     'Month',
+    'Group',
     'Category',
-    'Subcategory',
     'Type',
-    'Limit / contribution',
-    'Fund balance in',
+    'Bill due',
+    'Limit / contribution / share',
+    'Balance in (fund or stored)',
     'Paid from savings',
     'Available (limit + balance in + paid)',
     'Spent',
@@ -201,6 +215,7 @@ export async function renderYearWorkbook(report: YearReport): Promise<Buffer> {
     { width: 11 },
     { width: 14 },
     { width: 14 },
+    { width: 14 },
     { width: 16 },
     { width: 18 },
     { width: 14 },
@@ -210,7 +225,7 @@ export async function renderYearWorkbook(report: YearReport): Promise<Buffer> {
   addTitle(
     detail,
     `${report.year} budget vs. actual`,
-    'Regular lines: spending comes out of savings; the limit is a target. Funds: the limit moves from savings into the fund, and the remaining balance carries into next month (negative = deficit). Rows where a deficit was paid from savings are highlighted.',
+    'Standard lines: spending comes out of savings; the limit is a target. Funds: the limit moves from savings into the fund, and the remaining balance carries into next month (negative = deficit). Recurring: each month stores a share of the bill from savings; the bill is paid from the stored money and the rest settles with savings. Rows where a deficit was paid from savings are highlighted.',
     detailHeaders.length,
   );
   const detailHeaderRow = detail.addRow(detailHeaders);
@@ -219,9 +234,10 @@ export async function renderYearWorkbook(report: YearReport): Promise<Buffer> {
     for (const line of m.lines) {
       const row = detail.addRow([
         monthLabel(m.month),
+        line.groupName,
         line.categoryName,
-        line.subcategoryName,
-        line.fund ? 'Fund' : 'Regular',
+        TYPE_LABEL[line.type] ?? line.type,
+        line.dueMonth ? monthLabel(line.dueMonth) : '',
         dollars(line.limitCents),
         dollars(line.carryInCents),
         dollars(line.deficitPaidCents),
@@ -230,7 +246,7 @@ export async function renderYearWorkbook(report: YearReport): Promise<Buffer> {
         dollars(line.remainingCents),
         OUTCOME_LABEL[line.outcome],
       ]);
-      for (let i = 5; i <= 10; i++) row.getCell(i).numFmt = MONEY;
+      for (let i = 6; i <= 11; i++) row.getCell(i).numFmt = MONEY;
       if (line.deficitPaidCents > 0) {
         row.eachCell((cell) => (cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ORANGE_SOFT } }));
       }

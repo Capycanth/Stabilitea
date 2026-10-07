@@ -1,0 +1,110 @@
+<div class="page">
+  <div class="page-header">
+    <div>
+      <p class="eyebrow">Setup</p>
+      <h1>Categories</h1>
+    </div>
+    <label class="checkbox">
+      <input type="checkbox" [checked]="showArchived()" (change)="toggleArchived($event)" />
+      Show archived
+    </label>
+  </div>
+
+  <app-new-group-form (created)="onCreated($event)" />
+
+  @if (groups.error() && !groups.hasValue()) {
+    <p class="form-error" role="alert"><app-icon name="warning" />{{ loadError() }}</p>
+  }
+
+  @if (groups.hasValue()) {
+    <div class="split">
+      <div class="card tree-card">
+        <p id="tree-label" class="label">Groups and categories</p>
+        <p class="hint">Use arrow keys to move, Right/Left to expand or collapse, and select an item to edit it.</p>
+        @if (visible().length) {
+          <ul ngTree #tree="ngTree" class="tree list-reset" aria-labelledby="tree-label" selectionMode="follow" [(value)]="selection">
+            @for (group of visible(); track group.id) {
+              <li
+                ngTreeItem
+                #groupItem="ngTreeItem"
+                [parent]="tree"
+                [value]="'c-' + group.id"
+                [label]="group.name"
+                [expanded]="true"
+                class="node"
+              >
+                <span class="node-row">
+                  <span class="node-name">{{ group.name }}</span>
+                  @if (group.kind === 'income') {
+                    <span class="chip">Income</span>
+                  }
+                  @if (group.archivedAt) {
+                    <span class="chip">Archived</span>
+                  }
+                </span>
+                @if (group.categories.length) {
+                  <ul role="group" class="children list-reset">
+                    <ng-template ngTreeItemGroup [ownedBy]="groupItem" #children="ngTreeItemGroup">
+                      @for (category of group.categories; track category.id) {
+                        <li ngTreeItem [parent]="children" [value]="'s-' + category.id" [label]="category.name" class="node leaf">
+                          <span class="node-row">
+                            <span class="node-name">{{ category.name }}</span>
+                            @if (group.kind === 'expense') {
+                              @if (category.type === 'recurring' && category.billCents !== null && category.billMonths !== null) {
+                                <span class="money muted small">{{ billShortText(category.billCents, category.billMonths) }}</span>
+                              } @else {
+                                <span class="money muted small">{{ category.defaultLimitCents | money }}</span>
+                              }
+                            }
+                            <app-type-chip [type]="category.type" />
+                            @if (category.archivedAt) {
+                              <span class="chip">Archived</span>
+                            }
+                          </span>
+                        </li>
+                      }
+                    </ng-template>
+                  </ul>
+                }
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="empty">No groups yet. Add one above.</p>
+        }
+      </div>
+
+      <section class="card details" aria-live="polite" aria-label="Selected item">
+        @switch (selected()?.kind) {
+          @case ('group') {
+            @let s = groupSelection();
+            @if (s) {
+              <app-group-editor [group]="s.group" [index]="s.index" [count]="s.count" (changed)="groups.reload()" />
+            }
+          }
+          @case ('category') {
+            @let s = categorySelection();
+            @if (s) {
+              <app-category-editor
+                [category]="s.category"
+                [parent]="s.parent"
+                [groups]="all()"
+                [index]="s.index"
+                [count]="s.count"
+                (changed)="groups.reload()"
+              />
+            }
+          }
+          @default {
+            <div class="placeholder">
+              <app-icon name="groups" [size]="28" />
+              <p>Select a group or category to rename it, change a category's type, reorder, or archive it.</p>
+            </div>
+          }
+        }
+      </section>
+    </div>
+  } @else if (groups.isLoading()) {
+    <p class="loading" role="status">Loading categories…</p>
+  }
+</div>

@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { addMonths, type BudgetCategoryGroup, type BudgetMonthDto } from '@stabilitea/shared';
-import { notFound } from '../common/errors.js';
+import { addMonths, type BudgetGroup, type BudgetMonthDto, type CategoryType } from '@stabilitea/shared';
+import { conflict, notFound } from '../common/errors.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { BudgetLifecycleService, DEFICIT_PAYMENT, lineAvailable } from './budget-lifecycle.service.js';
+import { BudgetLifecycleService, DEFICIT_PAYMENT, lineAvailable, RECURRING, recurringInfo } from './budget-lifecycle.service.js';
 
 @Injectable()
 export class BudgetsService {
@@ -16,45 +16,46 @@ export class BudgetsService {
     return this.prisma.$transaction(async (tx) => {
       const row = await tx.budgetMonth.findUniqueOrThrow({
         where: { month },
-        include: { lines: { include: { subcategory: { include: { category: true } } } } },
+        include: { lines: { include: { category: { include: { group: true } } } } },
       });
       const next = await tx.budgetMonth.findUnique({ where: { month: addMonths(month, 1) }, select: { status: true } });
-      const spent = await this.lifecycle.spentBySubcategory(tx, month);
+      const spent = await this.lifecycle.spentByCategory(tx, month);
       const savingsBalanceCents = await this.lifecycle.savingsBalance(tx);
       const payments = await tx.savingsEntry.findMany({
         where: { month, kind: DEFICIT_PAYMENT },
         orderBy: { id: 'asc' },
-        include: { subcategory: { include: { category: true } } },
+        include: { category: { include: { group: true } } },
       });
 
       const sorted = [...row.lines].sort(
         (a, b) =>
-          a.subcategory.category.sortOrder - b.subcategory.category.sortOrder ||
-          a.subcategory.category.id - b.subcategory.category.id ||
-          a.subcategory.sortOrder - b.subcategory.sortOrder ||
-          a.subcategory.id - b.subcategory.id,
+          a.category.group.sortOrder - b.category.group.sortOrder ||
+          a.category.group.id - b.category.group.id ||
+          a.category.sortOrder - b.category.sortOrder ||
+          a.category.id - b.category.id,
       );
 
-      const groups: BudgetCategoryGroup[] = [];
+      const groups: BudgetGroup[] = [];
       for (const line of sorted) {
-        const category = line.subcategory.category;
-        let group = groups.at(-1);
-        if (!group || group.categoryId !== category.id) {
-          group = { categoryId: category.id, categoryName: category.name, lines: [] };
-          groups.push(group);
+        const group = line.category.group;
+        let entry = groups.at(-1);
+        if (!entry || entry.groupId !== group.id) {
+          entry = { groupId: group.id, groupName: group.name, lines: [] };
+          groups.push(entry);
         }
-        const spentCents = spent.get(line.subcategoryId) ?? 0;
+        const spentCents = spent.get(line.categoryId) ?? 0;
         const availableCents = lineAvailable(line);
-        group.lines.push({
+        entry.lines.push({
           id: line.id,
           month: line.month,
-          subcategoryId: line.subcategoryId,
-          subcategoryName: line.subcategory.name,
+          categoryId: line.categoryId,
+          categoryName: line.category.name,
           limitCents: line.limitCents,
           carryInCents: line.carryInCents,
           deficitPaidCents: line.deficitPaidCents,
           availableCents,
-          fund: line.fund,
+          type: line.type as CategoryType,
+          recurring: recurringInfo(line, spentCents),
           spentCents,
           remainingCents: availableCents - spentCents,
         });
@@ -70,14 +71,14 @@ export class BudgetsService {
         canClose: row.status === 'open' && !nextClosed,
         savingsBalanceCents,
         deficitPaidCents: payments.reduce((sum, p) => sum - p.amountCents, 0),
-        categories: groups,
+        groups: groups,
         deficitPayments: payments.map((p) => ({
           id: p.id,
           month: p.month,
           budgetLineId: p.budgetLineId,
-          subcategoryId: p.subcategoryId,
-          subcategoryName: p.subcategory?.name ?? null,
-          categoryName: p.subcategory?.category.name ?? null,
+          categoryId: p.categoryId,
+          categoryName: p.category?.name ?? null,
+          groupName: p.category?.group.name ?? null,
           amountCents: -p.amountCents,
           createdAt: p.createdAt.toISOString(),
         })),
@@ -99,6 +100,9 @@ export class BudgetsService {
       const line = await tx.budgetLine.findUnique({ where: { id: lineId } });
       if (!line || line.month !== month) throw notFound(`Budget line ${lineId} not found in ${month}`);
       await this.lifecycle.assertOpen(tx, month);
+      if (line.type === RECURRING) {
+        throw conflict("A recurring bill's monthly share is calculated from the bill. Change the bill on the Categories page.");
+      }
       await tx.budgetLine.update({ where: { id: lineId }, data: { limitCents } });
     });
     return this.get(month);
